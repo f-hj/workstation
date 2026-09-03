@@ -85,6 +85,10 @@ spec:
             - name: GIT_SSH_KEY_FILE
               value: /secrets/ssh/{{ .Values.ssh.key }}
             {{- end }}
+            {{- with .Values.drone.server }}
+            - name: DRONE_SERVER
+              value: {{ . | quote }}
+            {{- end }}
             {{- with .Values.env }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -107,9 +111,9 @@ spec:
             - name: workspace
               mountPath: {{ .Values.persistence.workspace.mountPath }}
             {{- end }}
-            {{- if .Values.persistence.data.enabled }}
-            - name: data
-              mountPath: {{ .Values.persistence.data.mountPath }}
+            {{- if .Values.persistence.home.enabled }}
+            - name: home
+              mountPath: {{ .Values.persistence.home.mountPath }}
             {{- end }}
             {{- if .Values.config.enabled }}
             - name: config
@@ -131,10 +135,10 @@ spec:
           persistentVolumeClaim:
             claimName: {{ default (printf "%s-workspace" (include "opencode.fullname" .)) .Values.persistence.workspace.existingClaim }}
         {{- end }}
-        {{- if .Values.persistence.data.enabled }}
-        - name: data
+        {{- if .Values.persistence.home.enabled }}
+        - name: home
           persistentVolumeClaim:
-            claimName: {{ default (printf "%s-data" (include "opencode.fullname" .)) .Values.persistence.data.existingClaim }}
+            claimName: {{ default (printf "%s-home" (include "opencode.fullname" .)) .Values.persistence.home.existingClaim }}
         {{- end }}
         {{- if .Values.config.enabled }}
         - name: config

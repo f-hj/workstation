@@ -29,6 +29,8 @@
 #   GITHUB_TOKEN (or GH_TOKEN)     GitHub token used for HTTPS clone/push and the gh CLI
 #   GIT_SSH_KEY_FILE               path to a private key (mounted secret) to use for SSH remotes
 #   GIT_SSH_KNOWN_HOSTS_SCAN       "false" to skip ssh-keyscan of github.com
+#
+#   DRONE_SERVER / DRONE_TOKEN     read directly by the drone CLI; nothing to do here
 set -euo pipefail
 
 log() { printf '[entrypoint] %s\n' "$*" >&2; }
@@ -36,6 +38,14 @@ log() { printf '[entrypoint] %s\n' "$*" >&2; }
 CONFIG_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/opencode"
 CONFIG_FILE="${CONFIG_DIR}/opencode.json"
 mkdir -p "${CONFIG_DIR}" "${HOME}/.local/share/opencode"
+
+# ---------------------------------------------------------------------------
+# 0. home directory (may be a freshly provisioned, empty volume)
+# ---------------------------------------------------------------------------
+if [[ ! -e "${HOME}/.bashrc" && -d /etc/skel ]]; then
+  log "seeding dotfiles into ${HOME} from /etc/skel"
+  cp -rn /etc/skel/. "${HOME}/" 2>/dev/null || true
+fi
 
 # ---------------------------------------------------------------------------
 # 1. opencode configuration

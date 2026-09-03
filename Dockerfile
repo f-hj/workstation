@@ -149,6 +149,28 @@ RUN set -eux; \
     opencode --version
 
 # ---------------------------------------------------------------------------
+# uv (Python package manager) and the Drone CI CLI, latest releases
+# ---------------------------------------------------------------------------
+RUN set -eux; \
+    case "${TARGETARCH}" in \
+        amd64) UV_TRIPLE=x86_64-unknown-linux-gnu ;; \
+        arm64) UV_TRIPLE=aarch64-unknown-linux-gnu ;; \
+    esac; \
+    UV_BASE="https://github.com/astral-sh/uv/releases/latest/download"; \
+    curl -fsSL "${UV_BASE}/uv-${UV_TRIPLE}.tar.gz" -o /tmp/uv.tar.gz; \
+    curl -fsSL "${UV_BASE}/uv-${UV_TRIPLE}.tar.gz.sha256" | sed 's# .*# /tmp/uv.tar.gz#' | sha256sum -c -; \
+    tar -xzf /tmp/uv.tar.gz -C /tmp; \
+    install -m 0755 "/tmp/uv-${UV_TRIPLE}/uv" "/tmp/uv-${UV_TRIPLE}/uvx" /usr/local/bin/; \
+    rm -rf /tmp/uv.tar.gz "/tmp/uv-${UV_TRIPLE}"; \
+    uv --version; \
+    # drone CLI (https://github.com/harness/drone-cli)
+    curl -fsSL "https://github.com/harness/drone-cli/releases/latest/download/drone_linux_${TARGETARCH}.tar.gz" \
+        | tar -xz -C /tmp drone; \
+    install -m 0755 /tmp/drone /usr/local/bin/drone; \
+    rm -f /tmp/drone; \
+    drone --version
+
+# ---------------------------------------------------------------------------
 # Non-root user, directories, entrypoint
 # ---------------------------------------------------------------------------
 RUN set -eux; \
@@ -182,8 +204,10 @@ ENV HOME=/home/${USERNAME} \
 EXPOSE 4096
 
 # Persist these two paths:
-#   /workspace                          your repositories
-#   /home/dev/.local/share/opencode     opencode sessions, auth.json, storage
+#   /workspace     your repositories
+#   /home/dev      opencode sessions/auth, Go module cache, npm/yarn/uv caches,
+#                  gh and drone config, shell history. The entrypoint seeds
+#                  dotfiles from /etc/skel when the home volume starts empty.
 
 # /global/health is behind basic auth when OPENCODE_SERVER_PASSWORD is set.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

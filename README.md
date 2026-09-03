@@ -11,7 +11,9 @@ development toolchain, published to GitHub Container Registry together with a He
 ## What is inside the image
 
 - Debian `stable-slim`, non-root user `dev` (uid 1000) with passwordless `sudo`
-- `build-essential`, cmake, pkg-config, libssl-dev, python3, git, git-lfs, `gh`, ripgrep, fd, fzf, jq
+- `build-essential`, cmake, pkg-config, libssl-dev, git, git-lfs, ripgrep, fd, fzf, jq
+- GitHub CLI (`gh`) and Drone CI CLI (`drone`)
+- Python 3 with `uv` and `uvx`
 - Go (latest stable at build time)
 - Node.js (latest at build time) with npm, yarn, corepack
 - `opencode` (latest release at build time) started as `opencode serve` on port 4096
@@ -52,6 +54,7 @@ config file already exists (for instance one mounted from a ConfigMap).
 | `GIT_USER_NAME` / `GIT_USER_EMAIL` |                | Commit identity                                                      |
 | `GITHUB_TOKEN` (or `GH_TOKEN`)   |                  | GitHub token for HTTPS clone/push and the `gh` CLI                   |
 | `GIT_SSH_KEY_FILE`               |                  | Path to a mounted private key for SSH remotes                        |
+| `DRONE_SERVER` / `DRONE_TOKEN`   |                  | Drone CI server URL and personal token, read by the `drone` CLI      |
 
 The API key is referenced from the config as `{env:OPENROUTER_API_KEY}`, so the secret
 itself is never written to disk. A project-level `opencode.json` inside `/workspace`
@@ -91,7 +94,7 @@ docker run -d --name opencode \
   -e GITHUB_TOKEN=github_pat_... \
   -e GIT_USER_NAME="Your Name" -e GIT_USER_EMAIL=you@example.com \
   -v opencode-workspace:/workspace \
-  -v opencode-data:/home/dev/.local/share/opencode \
+  -v opencode-home:/home/dev \
   ghcr.io/f-hj/workstation:latest
 
 curl -u opencode:change-me http://127.0.0.1:4096/global/health
@@ -118,7 +121,8 @@ kubectl create namespace opencode
 kubectl -n opencode create secret generic opencode \
   --from-literal=OPENROUTER_API_KEY=sk-or-... \
   --from-literal=GITHUB_TOKEN=github_pat_... \
-  --from-literal=OPENCODE_SERVER_PASSWORD=change-me
+  --from-literal=OPENCODE_SERVER_PASSWORD=change-me \
+  --from-literal=DRONE_TOKEN=...
 
 helm upgrade --install opencode oci://ghcr.io/f-hj/charts/opencode \
   --namespace opencode \
@@ -142,14 +146,18 @@ opencode:
 git:
   userName: Your Name
   userEmail: you@example.com
+drone:
+  server: https://drone.example.com
 secrets:
-  existingSecret: opencode        # keys: OPENROUTER_API_KEY, GITHUB_TOKEN, OPENCODE_SERVER_PASSWORD
+  existingSecret: opencode        # keys: OPENROUTER_API_KEY, GITHUB_TOKEN, OPENCODE_SERVER_PASSWORD, DRONE_TOKEN
 ssh:
   existingSecret: opencode-ssh    # optional, key id_ed25519
 persistence:
   workspace:
     size: 50Gi
     storageClass: fast
+  home:
+    size: 20Gi
 ingress:
   enabled: true
   className: nginx
@@ -169,8 +177,10 @@ resources:
 Chart notes:
 
 - Two `ReadWriteOnce` PVCs are created: `/workspace` (repositories) and
-  `/home/dev/.local/share/opencode` (sessions, storage). The Deployment uses the
-  `Recreate` strategy for that reason.
+  `/home/dev` (the whole home: opencode sessions and auth, Go module cache,
+  npm/yarn/uv caches, `gh` and `drone` config, shell history). The Deployment
+  uses the `Recreate` strategy for that reason. When the home volume starts
+  empty the entrypoint seeds dotfiles from `/etc/skel`.
 - `config.enabled=true` mounts `config.content` as `opencode.json` and disables
   the env-based generation.
 - Probes are TCP so they keep working when basic auth is enabled.
