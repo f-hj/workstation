@@ -55,6 +55,11 @@ spec:
             - name: http
               containerPort: {{ .Values.opencode.port }}
               protocol: TCP
+            {{- if .Values.sshServer.enabled }}
+            - name: ssh
+              containerPort: {{ .Values.sshServer.port }}
+              protocol: TCP
+            {{- end }}
           env:
             - name: OPENCODE_HOST
               value: "0.0.0.0"
@@ -106,6 +111,17 @@ spec:
             - name: DRONE_SERVER
               value: {{ . | quote }}
             {{- end }}
+            {{- if .Values.sshServer.enabled }}
+            - name: SSH_SERVER_PORT
+              value: {{ .Values.sshServer.port | quote }}
+            {{- if .Values.sshServer.existingSecret }}
+            - name: SSH_AUTHORIZED_KEYS_FILE
+              value: /secrets/ssh-server/{{ .Values.sshServer.existingSecretKey }}
+            {{- else }}
+            - name: SSH_AUTHORIZED_KEYS
+              value: {{ join "\n" .Values.sshServer.authorizedKeys | quote }}
+            {{- end }}
+            {{- end }}
             {{- with .Values.env }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -143,6 +159,11 @@ spec:
               mountPath: /secrets/ssh
               readOnly: true
             {{- end }}
+            {{- if and .Values.sshServer.enabled .Values.sshServer.existingSecret }}
+            - name: ssh-server
+              mountPath: /secrets/ssh-server
+              readOnly: true
+            {{- end }}
             {{- with .Values.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -167,6 +188,12 @@ spec:
           secret:
             secretName: {{ .Values.ssh.existingSecret }}
             defaultMode: 0400
+        {{- end }}
+        {{- if and .Values.sshServer.enabled .Values.sshServer.existingSecret }}
+        - name: ssh-server
+          secret:
+            secretName: {{ .Values.sshServer.existingSecret }}
+            defaultMode: 0444
         {{- end }}
         {{- with .Values.extraVolumes }}
         {{- toYaml . | nindent 8 }}

@@ -82,6 +82,26 @@ git:
 drone:
   server: ""
 
+# ---------------------------------------------------------------------------
+# SSH access to the workstation (sshd runs unprivileged as "dev", key-only)
+# ---------------------------------------------------------------------------
+sshServer:
+  enabled: false
+  port: 2222
+  # Public keys allowed to log in as "dev".
+  authorizedKeys: []
+  #  - ssh-ed25519 AAAA... you@laptop
+  # Or an existing Secret holding an "authorized_keys" file.
+  existingSecret: ""
+  existingSecretKey: authorized_keys
+  service:
+    # NodePort exposes ssh on every node; use ClusterIP + kubectl port-forward
+    # if you do not want that.
+    type: NodePort
+    # Fixed node port (30000-32767); empty lets Kubernetes pick one.
+    nodePort: ""
+    annotations: {}
+
 # SSH private key for git over SSH (alternative or complement to the token).
 # Create with:
 #   kubectl create secret generic opencode-ssh --from-file=id_ed25519=$HOME/.ssh/id_ed25519

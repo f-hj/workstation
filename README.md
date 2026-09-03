@@ -55,6 +55,9 @@ config file already exists (for instance one mounted from a ConfigMap).
 | `GITHUB_TOKEN` (or `GH_TOKEN`)   |                  | GitHub token for HTTPS clone/push and the `gh` CLI                   |
 | `GIT_SSH_KEY_FILE`               |                  | Path to a mounted private key for SSH remotes                        |
 | `DRONE_SERVER` / `DRONE_TOKEN`   |                  | Drone CI server URL and personal token, read by the `drone` CLI      |
+| `SSH_AUTHORIZED_KEYS`            |                  | Public keys (one per line); when set, an sshd starts (see below)     |
+| `SSH_AUTHORIZED_KEYS_FILE`       |                  | Same, from a file such as a mounted secret                           |
+| `SSH_SERVER_PORT`                | `2222`           | sshd listen port                                                     |
 
 A project-level `opencode.json` inside `/workspace` is merged on top as usual.
 
@@ -96,6 +99,41 @@ those 0600 files (just as it can read opencode's own `auth.json`). Scrubbing
 keeps secrets out of casual `env` dumps and out of inherited environments; it is
 not a sandbox. The files live on the home PVC, so they persist across restarts
 and are refreshed from the environment on every start.
+
+## SSH access to the workstation
+
+Set `SSH_AUTHORIZED_KEYS` (or the chart's `sshServer.authorizedKeys`) and the
+entrypoint starts an OpenSSH server next to opencode:
+
+- Runs **unprivileged as `dev`** on port 2222. The pod drops all capabilities, so
+  there is no root sshd and no port 22. Logging in is only possible as `dev`.
+- **Key-only**: passwords and root login are disabled. `sudo` still works once
+  inside, so treat an authorized key as full access to the container.
+- **Stable host key**: generated once into `~/.ssh/host_keys` on the home volume.
+  The fingerprint is printed in the log at startup.
+- SFTP, agent forwarding and TCP forwarding are enabled, so `scp`, `rsync`,
+  VS Code Remote-SSH and `ssh -L 4096:127.0.0.1:4096` all work.
+- The container stops if either sshd or opencode exits, so Kubernetes restarts
+  a broken pod instead of leaving half of it running.
+
+Chart:
+
+```yaml
+sshServer:
+  enabled: true
+  authorizedKeys:
+    - ssh-ed25519 AAAA... you@laptop
+  service:
+    type: NodePort      # or ClusterIP + kubectl port-forward
+    nodePort: 30022     # optional fixed port
+```
+
+Then `ssh -p 30022 dev@<node-ip>`. Running `ssh -t -p 30022 dev@<node-ip> opencode`
+gives you the full opencode TUI inside the pod, attached to the local server.
+`sshServer.existingSecret` takes a Secret with an `authorized_keys` entry instead
+of listing keys in values.
+
+Docker: `-e SSH_AUTHORIZED_KEYS="$(cat ~/.ssh/id_ed25519.pub)" -p 2222:2222`.
 
 ## GitHub access: which key?
 

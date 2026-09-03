@@ -34,6 +34,11 @@
 #
 #   DRONE_SERVER / DRONE_TOKEN     Drone CI; stored for the drone wrapper, then unset
 #
+#   SSH_AUTHORIZED_KEYS            public keys (one per line) allowed to ssh in as the
+#                                  container user; starts an unprivileged sshd when set
+#   SSH_AUTHORIZED_KEYS_FILE       same, read from a file (e.g. a mounted secret)
+#   SSH_SERVER_PORT                sshd port, default 2222
+#
 #   OPENCODE_SCRUB_ENV             "false" to disable environment scrubbing
 #   OPENCODE_KEEP_ENV              space/comma separated variable names exempt from scrubbing
 set -euo pipefail
@@ -202,6 +207,65 @@ if [[ -n "${DRONE_TOKEN:-}${DRONE_SERVER:-}" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# 3b. SSH server (unprivileged sshd, key-only, logs in as the container user)
+# ---------------------------------------------------------------------------
+SSHD_CONFIG=""
+if [[ -n "${SSH_AUTHORIZED_KEYS:-}" || -n "${SSH_AUTHORIZED_KEYS_FILE:-}" ]]; then
+  SSH_PORT="${SSH_SERVER_PORT:-2222}"
+  ME="$(id -un)"
+  mkdir -p "${HOME}/.ssh/host_keys"
+  chmod 700 "${HOME}/.ssh"
+
+  # authorized_keys from env and/or file
+  {
+    [[ -n "${SSH_AUTHORIZED_KEYS:-}" ]] && printf '%s\n' "${SSH_AUTHORIZED_KEYS}"
+    [[ -n "${SSH_AUTHORIZED_KEYS_FILE:-}" && -r "${SSH_AUTHORIZED_KEYS_FILE}" ]] && cat "${SSH_AUTHORIZED_KEYS_FILE}"
+    true
+  } | grep -v '^[[:space:]]*$' > "${HOME}/.ssh/authorized_keys" || true
+  chmod 600 "${HOME}/.ssh/authorized_keys"
+  KEY_COUNT="$(wc -l < "${HOME}/.ssh/authorized_keys")"
+
+  # host keys persist in the home volume so the fingerprint is stable
+  [[ -f "${HOME}/.ssh/host_keys/ssh_host_ed25519_key" ]] || \
+    ssh-keygen -q -N '' -t ed25519 -f "${HOME}/.ssh/host_keys/ssh_host_ed25519_key"
+  [[ -f "${HOME}/.ssh/host_keys/ssh_host_rsa_key" ]] || \
+    ssh-keygen -q -N '' -t rsa -b 4096 -f "${HOME}/.ssh/host_keys/ssh_host_rsa_key"
+
+  SSHD_CONFIG="${XDG_CONFIG_HOME}/workstation/sshd_config"
+  install -d -m 0700 "${XDG_CONFIG_HOME}/workstation"
+  cat > "${SSHD_CONFIG}" <<EOF
+Port ${SSH_PORT}
+ListenAddress 0.0.0.0
+HostKey ${HOME}/.ssh/host_keys/ssh_host_ed25519_key
+HostKey ${HOME}/.ssh/host_keys/ssh_host_rsa_key
+PidFile none
+UsePAM no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+AuthorizedKeysFile ${HOME}/.ssh/authorized_keys
+PermitRootLogin no
+AllowUsers ${ME}
+StrictModes yes
+X11Forwarding no
+AllowTcpForwarding yes
+AllowAgentForwarding yes
+ClientAliveInterval 60
+ClientAliveCountMax 3
+LogLevel INFO
+Subsystem sftp /usr/lib/openssh/sftp-server
+EOF
+  if (( KEY_COUNT == 0 )); then
+    log "WARNING: SSH server requested but no authorized keys found; not starting sshd"
+    SSHD_CONFIG=""
+  else
+    log "SSH server: ${KEY_COUNT} authorized key(s), port ${SSH_PORT}, user ${ME}, key-only"
+    log "SSH host key: $(ssh-keygen -lf "${HOME}/.ssh/host_keys/ssh_host_ed25519_key.pub")"
+  fi
+  CONSUMED_VARS+=(SSH_AUTHORIZED_KEYS SSH_AUTHORIZED_KEYS_FILE SSH_SERVER_PORT)
+fi
+
+# ---------------------------------------------------------------------------
 # 4. scrub the environment
 # ---------------------------------------------------------------------------
 if [[ "${OPENCODE_SCRUB_ENV:-true}" == "true" ]]; then
@@ -249,8 +313,33 @@ if [[ "${1:-serve}" == "serve" ]]; then
       args+=(--cors "${origin}")
     done
   fi
+  if [[ -z "${SSHD_CONFIG}" ]]; then
+    log "starting: opencode ${args[*]} $*"
+    exec opencode "${args[@]}" "$@"
+  fi
+
+  # Run sshd and opencode side by side; if either exits, stop the other so the
+  # container restarts cleanly.
+  log "starting: sshd -f ${SSHD_CONFIG}"
+  /usr/sbin/sshd -D -e -f "${SSHD_CONFIG}" &
+  sshd_pid=$!
   log "starting: opencode ${args[*]} $*"
-  exec opencode "${args[@]}" "$@"
+  opencode "${args[@]}" "$@" &
+  oc_pid=$!
+
+  forward() { kill -TERM "${sshd_pid}" "${oc_pid}" 2>/dev/null || true; }
+  trap forward TERM INT
+
+  wait -n "${sshd_pid}" "${oc_pid}"
+  code=$?
+  if kill -0 "${oc_pid}" 2>/dev/null; then
+    log "sshd exited (${code}); stopping opencode"
+  else
+    log "opencode exited (${code}); stopping sshd"
+  fi
+  forward
+  wait "${sshd_pid}" "${oc_pid}" 2>/dev/null || true
+  exit "${code}"
 fi
 
 exec "$@"

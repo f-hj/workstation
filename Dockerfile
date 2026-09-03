@@ -45,6 +45,7 @@ RUN set -eux; \
         git \
         git-lfs \
         openssh-client \
+        openssh-server \
         ca-certificates \
         curl \
         wget \
@@ -79,6 +80,10 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends gh; \
     git lfs install --system; \
     ln -sf /usr/bin/fdfind /usr/local/bin/fd; \
+    # sshd runs unprivileged as the dev user with its own host keys (see entrypoint);
+    # drop the package-generated system host keys.
+    rm -f /etc/ssh/ssh_host_*; \
+    mkdir -p /run/sshd; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
@@ -203,7 +208,8 @@ ENV HOME=/home/${USERNAME} \
     OPENCODE_MODEL="" \
     BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 
-EXPOSE 4096
+# 4096: opencode server. 2222: optional sshd (only when SSH_AUTHORIZED_KEYS is set).
+EXPOSE 4096 2222
 
 # Persist these two paths:
 #   /workspace     your repositories

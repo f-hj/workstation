@@ -162,6 +162,8 @@ jobs:
             --set ingress.hosts[0].paths[0].path=/ \
             --set ingress.hosts[0].paths[0].pathType=Prefix \
             --set ssh.existingSecret=opencode-ssh \
+            --set sshServer.enabled=true \
+            --set 'sshServer.authorizedKeys[0]=ssh-ed25519 AAAA lint@example' \
             --set config.enabled=true > /dev/null
 
       - name: Package

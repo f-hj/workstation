@@ -29,3 +29,19 @@ Set secrets.serverPassword (or provide it in an existing secret) before exposing
 Open a shell in the workstation:
 
   kubectl -n {{ .Release.Namespace }} exec -it deploy/{{ include "opencode.fullname" . }} -- bash
+{{- if .Values.sshServer.enabled }}
+
+SSH (key-only, user "dev"):
+{{- if eq .Values.sshServer.service.type "NodePort" }}
+
+  NODE_PORT=$(kubectl -n {{ .Release.Namespace }} get svc {{ include "opencode.fullname" . }}-ssh -o jsonpath='{.spec.ports[0].nodePort}')
+  ssh -p $NODE_PORT dev@<any-node-ip>
+{{- else }}
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "opencode.fullname" . }}-ssh {{ .Values.sshServer.port }}:ssh
+  ssh -p {{ .Values.sshServer.port }} dev@127.0.0.1
+{{- end }}
+
+  The host key fingerprint is printed in the pod log at startup ("SSH host key:").
+  Run the TUI inside the pod: ssh -t ... dev@... opencode
+{{- end }}

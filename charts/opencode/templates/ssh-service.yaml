@@ -1,0 +1,25 @@
+{{- if .Values.sshServer.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "opencode.fullname" . }}-ssh
+  labels:
+    {{- include "opencode.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ssh
+  {{- with .Values.sshServer.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.sshServer.service.type }}
+  ports:
+    - name: ssh
+      port: {{ .Values.sshServer.port }}
+      targetPort: ssh
+      protocol: TCP
+      {{- if and (eq .Values.sshServer.service.type "NodePort") .Values.sshServer.service.nodePort }}
+      nodePort: {{ .Values.sshServer.service.nodePort }}
+      {{- end }}
+  selector:
+    {{- include "opencode.selectorLabels" . | nindent 4 }}
+{{- end }}
