@@ -69,6 +69,21 @@ Env var name that carries the provider API key.
 {{- end }}
 {{- end }}
 
+{{/*
+Registry pull secret generated from .Values.imageCredentials.
+*/}}
+{{- define "opencode.imagePullSecretName" -}}
+{{- default (printf "%s-registry" (include "opencode.fullname" .)) .Values.imageCredentials.name }}
+{{- end }}
+
+{{- define "opencode.dockerconfigjson" -}}
+{{- $c := .Values.imageCredentials }}
+{{- $auth := printf "%s:%s" $c.username $c.password | b64enc }}
+{{- $entry := dict "username" $c.username "password" $c.password "auth" $auth }}
+{{- if $c.email }}{{- $_ := set $entry "email" $c.email }}{{- end }}
+{{- dict "auths" (dict $c.registry $entry) | toJson }}
+{{- end }}
+
 {{- define "opencode.image" -}}
 {{- printf "%s:%s" .Values.image.repository (default .Chart.AppVersion .Values.image.tag) }}
 {{- end }}

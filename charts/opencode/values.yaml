@@ -8,7 +8,21 @@ image:
   tag: ""
   pullPolicy: IfNotPresent
 
+# Existing pull secrets to reference, e.g. [{ name: my-registry }].
 imagePullSecrets: []
+
+# Or let the chart create a kubernetes.io/dockerconfigjson pull secret from
+# values and attach it to the pod automatically. For GHCR use a (fine-grained
+# or classic) personal access token with read:packages as the password.
+imageCredentials:
+  create: false
+  # Defaults to <release>-opencode-registry.
+  name: ""
+  registry: ghcr.io
+  username: ""
+  password: ""
+  email: ""
+
 nameOverride: ""
 fullnameOverride: ""
 

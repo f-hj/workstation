@@ -221,6 +221,19 @@ Chart notes:
   empty the entrypoint seeds dotfiles from `/etc/skel`.
 - `config.enabled=true` mounts `config.content` as `opencode.json` and disables
   the env-based generation.
+- Private registry: either reference existing pull secrets with
+  `imagePullSecrets: [{ name: my-registry }]`, or let the chart create one:
+
+  ```yaml
+  imageCredentials:
+    create: true
+    registry: ghcr.io
+    username: f-hj
+    password: ghp_...   # token with read:packages
+  ```
+
+  The generated `kubernetes.io/dockerconfigjson` Secret is attached to the pod
+  automatically.
 - Probes are TCP so they keep working when basic auth is enabled.
 - An `ingress.hosts` entry without `paths` gets `/` with `pathType: Prefix`, so
   a values file only needs `- host: opencode.example.com`.

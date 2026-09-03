@@ -27,9 +27,14 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
-      {{- with .Values.imagePullSecrets }}
+      {{- if or .Values.imagePullSecrets .Values.imageCredentials.create }}
       imagePullSecrets:
+        {{- if .Values.imageCredentials.create }}
+        - name: {{ include "opencode.imagePullSecretName" . }}
+        {{- end }}
+        {{- with .Values.imagePullSecrets }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
       serviceAccountName: {{ include "opencode.serviceAccountName" . }}
       automountServiceAccountToken: false
