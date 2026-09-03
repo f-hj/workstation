@@ -5,8 +5,8 @@
 #   0. Seed dotfiles when the home directory is a fresh, empty volume.
 #   1. Move secrets out of the environment into each tool's own store
 #      (0600 files under $HOME) so the agent's shell does not inherit them.
-#   2. Generate ~/.config/opencode/opencode.json from environment variables
-#      (unless a config file is already present, e.g. mounted from a ConfigMap).
+#   2. Generate ~/.config/opencode/opencode.json from environment variables at
+#      every start (unless a read-only one is mounted, e.g. from a ConfigMap).
 #   3. Configure git identity and GitHub credentials (token and/or SSH key).
 #   4. Scrub the environment (consumed secrets, *_TOKEN/*_PASSWORD/..., KUBERNETES_*).
 #   5. Start `opencode serve` bound to all interfaces, or run the given command.
@@ -25,7 +25,8 @@
 #   OPENCODE_SECRET_FILES          space/comma separated env var names to store as 0600 files
 #                                  under ~/.config/workstation/secrets/<NAME> and remove from
 #                                  the environment; reference them with {file:...} in config
-#   OPENCODE_CONFIG_FORCE          "true" to overwrite an existing config file
+#   OPENCODE_CONFIG_KEEP           "true" to keep an existing (writable) config file instead of
+#                                  regenerating it from the environment at every start
 #
 #   OPENCODE_HOST / OPENCODE_PORT  bind address for `opencode serve` (0.0.0.0 / 4096)
 #   OPENCODE_CORS                  space separated list of allowed browser origins
@@ -151,12 +152,17 @@ write_config() {
   fi
 }
 
-if [[ -s "${CONFIG_FILE}" && "${OPENCODE_CONFIG_FORCE:-false}" != "true" ]]; then
-  log "using existing ${CONFIG_FILE}"
+# The config is derived from the environment, so regenerate it on every start
+# (the home directory is usually a persistent volume). Keep the file only when
+# it is not writable (mounted ConfigMap) or when OPENCODE_CONFIG_KEEP=true.
+if [[ -s "${CONFIG_FILE}" && ! -w "${CONFIG_FILE}" ]]; then
+  log "using mounted read-only ${CONFIG_FILE}"
+elif [[ -s "${CONFIG_FILE}" && "${OPENCODE_CONFIG_KEEP:-false}" == "true" ]]; then
+  log "OPENCODE_CONFIG_KEEP=true; using existing ${CONFIG_FILE}"
 else
   write_config
 fi
-CONSUMED_VARS+=(OPENCODE_CONFIG_JSON OPENCODE_EXTRA_CONFIG_JSON OPENCODE_CONFIG_FORCE OPENCODE_PROVIDER_API_KEY_ENV OPENCODE_PROVIDER_BASE_URL)
+CONSUMED_VARS+=(OPENCODE_CONFIG_JSON OPENCODE_EXTRA_CONFIG_JSON OPENCODE_CONFIG_KEEP OPENCODE_CONFIG_FORCE OPENCODE_PROVIDER_API_KEY_ENV OPENCODE_PROVIDER_BASE_URL)
 
 # ---------------------------------------------------------------------------
 # 3. git / GitHub / Drone

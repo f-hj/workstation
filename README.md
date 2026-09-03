@@ -36,8 +36,10 @@ docker build --build-arg NODE_VERSION=v24.20.0 --build-arg GO_VERSION=go1.27.1 -
 
 ## Configuration (environment variables)
 
-The entrypoint writes `~/.config/opencode/opencode.json` from these variables unless a
-config file already exists (for instance one mounted from a ConfigMap).
+The entrypoint writes `~/.config/opencode/opencode.json` from these variables at every
+start, so value changes apply after a pod restart. A read-only file mounted there (the
+chart's `config.enabled`) is used as is; `OPENCODE_CONFIG_KEEP=true` keeps a hand-edited
+file.
 
 | Variable                         | Default          | Purpose                                                              |
 | -------------------------------- | ---------------- | -------------------------------------------------------------------- |
