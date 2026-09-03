@@ -100,6 +100,41 @@ keeps secrets out of casual `env` dumps and out of inherited environments; it is
 not a sandbox. The files live on the home PVC, so they persist across restarts
 and are refreshed from the environment on every start.
 
+## MCP servers and other extra configuration
+
+`opencode.extraConfig` (env: `OPENCODE_EXTRA_CONFIG_JSON`) is deep-merged into
+the generated `opencode.json`, so anything from the
+[opencode config reference](https://opencode.ai/docs/config/) can be added
+without replacing the provider setup: MCP servers, permissions, agents,
+instructions. Secrets that MCP servers need go through `opencode.secretFiles`
+(env: `OPENCODE_SECRET_FILES`): the listed variables are stored as 0600 files
+under `/home/dev/.config/workstation/secrets/<NAME>`, removed from the
+environment, and referenced with `{file:...}`.
+
+Example, Datadog's hosted MCP server with API and application keys (needed for
+headless use; the OAuth flow requires a browser on the same machine):
+
+```yaml
+opencode:
+  secretFiles: [DD_API_KEY, DD_APPLICATION_KEY]
+  extraConfig:
+    mcp:
+      datadog:
+        type: remote
+        # mcp.<your site>: mcp.datadoghq.com (US1), mcp.datadoghq.eu (EU), mcp.us3.datadoghq.com, ...
+        url: https://mcp.datadoghq.com/api/unstable/mcp-server/mcp
+        oauth: false
+        headers:
+          DD_API_KEY: "{file:/home/dev/.config/workstation/secrets/DD_API_KEY}"
+          DD_APPLICATION_KEY: "{file:/home/dev/.config/workstation/secrets/DD_APPLICATION_KEY}"
+```
+
+Put `DD_API_KEY` and `DD_APPLICATION_KEY` in the Secret (`secrets.extra` or your
+`existingSecret`). The application key needs the `mcp_read` (or `mcp_write`)
+permission plus the permissions of the resources you query. Local MCP servers
+work the same way with `type: local` and a `command` array; `npx`, `uvx` and
+`go run` are all available in the image.
+
 ## SSH access to the workstation
 
 Set `SSH_AUTHORIZED_KEYS` (or the chart's `sshServer.authorizedKeys`) and the

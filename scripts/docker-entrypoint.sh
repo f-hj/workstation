@@ -20,6 +20,11 @@
 #                                  defaults to "<PROVIDER>_API_KEY", e.g. OPENROUTER_API_KEY
 #   OPENCODE_PROVIDER_BASE_URL     override the provider base URL (self-hosted / proxies)
 #   OPENCODE_CONFIG_JSON           full opencode.json content; written verbatim, wins over the above
+#   OPENCODE_EXTRA_CONFIG_JSON     JSON object deep-merged into the generated config
+#                                  (mcp servers, permissions, agents, ...)
+#   OPENCODE_SECRET_FILES          space/comma separated env var names to store as 0600 files
+#                                  under ~/.config/workstation/secrets/<NAME> and remove from
+#                                  the environment; reference them with {file:...} in config
 #   OPENCODE_CONFIG_FORCE          "true" to overwrite an existing config file
 #
 #   OPENCODE_HOST / OPENCODE_PORT  bind address for `opencode serve` (0.0.0.0 / 4096)
@@ -88,6 +93,20 @@ else
   log "WARNING: ${KEY_ENV} is not set; opencode will have no credentials for provider '${PROVIDER}'"
 fi
 
+# Additional secrets to file (for {file:...} references in extra config, e.g. MCP headers).
+for name in $(printf '%s' "${OPENCODE_SECRET_FILES:-}" | tr ',' ' '); do
+  if [[ -n "${!name:-}" ]]; then
+    log "storing \$${name} in ${SECRETS_DIR}/${name}"
+    write_secret "${name}" "${!name}"
+    CONSUMED_VARS+=("${name}")
+  elif [[ -s "${SECRETS_DIR}/${name}" ]]; then
+    log "reusing ${SECRETS_DIR}/${name} from a previous start"
+  else
+    log "WARNING: ${name} listed in OPENCODE_SECRET_FILES but not set"
+  fi
+done
+CONSUMED_VARS+=(OPENCODE_SECRET_FILES)
+
 # ---------------------------------------------------------------------------
 # 2. opencode configuration
 # ---------------------------------------------------------------------------
@@ -123,6 +142,13 @@ write_config() {
     + (if $model != "" then { model: $model } else {} end)
     + (if $small_model != "" then { small_model: $small_model } else {} end)
     ' > "${CONFIG_FILE}"
+
+  if [[ -n "${OPENCODE_EXTRA_CONFIG_JSON:-}" ]]; then
+    log "merging OPENCODE_EXTRA_CONFIG_JSON into opencode.json"
+    local merged
+    merged="$(jq -s '.[0] * .[1]' "${CONFIG_FILE}" <(printf '%s\n' "${OPENCODE_EXTRA_CONFIG_JSON}"))"
+    printf '%s\n' "${merged}" > "${CONFIG_FILE}"
+  fi
 }
 
 if [[ -s "${CONFIG_FILE}" && "${OPENCODE_CONFIG_FORCE:-false}" != "true" ]]; then
@@ -130,7 +156,7 @@ if [[ -s "${CONFIG_FILE}" && "${OPENCODE_CONFIG_FORCE:-false}" != "true" ]]; the
 else
   write_config
 fi
-CONSUMED_VARS+=(OPENCODE_CONFIG_JSON OPENCODE_CONFIG_FORCE OPENCODE_PROVIDER_API_KEY_ENV OPENCODE_PROVIDER_BASE_URL)
+CONSUMED_VARS+=(OPENCODE_CONFIG_JSON OPENCODE_EXTRA_CONFIG_JSON OPENCODE_CONFIG_FORCE OPENCODE_PROVIDER_API_KEY_ENV OPENCODE_PROVIDER_BASE_URL)
 
 # ---------------------------------------------------------------------------
 # 3. git / GitHub / Drone

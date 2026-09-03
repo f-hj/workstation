@@ -57,6 +57,23 @@ opencode:
   # Variable names that must survive scrubbing (e.g. NPM_TOKEN for a private
   # registry the agent needs).
   keepEnv: []
+  # Env vars (from the Secret) to store as 0600 files at
+  # /home/dev/.config/workstation/secrets/<NAME> and remove from the
+  # environment. Reference them in extraConfig with {file:...}.
+  secretFiles: []
+  # Deep-merged into the generated opencode.json: MCP servers, permissions,
+  # agents, instructions, ... See https://opencode.ai/docs/config/
+  extraConfig: {}
+  # Example: Datadog's hosted MCP server, keys stored as files.
+  #  secretFiles: [DD_API_KEY, DD_APPLICATION_KEY]
+  #  extraConfig:
+  #    mcp:
+  #      datadog:
+  #        type: remote
+  #        url: https://mcp.datadoghq.com/api/unstable/mcp-server/mcp
+  #        headers:
+  #          DD_API_KEY: "{file:/home/dev/.config/workstation/secrets/DD_API_KEY}"
+  #          DD_APPLICATION_KEY: "{file:/home/dev/.config/workstation/secrets/DD_APPLICATION_KEY}"
 
 # Optional: ship a complete opencode.json instead of the env-generated one.
 # Mounted at ~/.config/opencode/opencode.json. Use {env:VAR} for secrets.

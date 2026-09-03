@@ -96,6 +96,14 @@ spec:
             - name: OPENCODE_KEEP_ENV
               value: {{ join " " . | quote }}
             {{- end }}
+            {{- with .Values.opencode.secretFiles }}
+            - name: OPENCODE_SECRET_FILES
+              value: {{ join " " . | quote }}
+            {{- end }}
+            {{- with .Values.opencode.extraConfig }}
+            - name: OPENCODE_EXTRA_CONFIG_JSON
+              value: {{ toJson . | quote }}
+            {{- end }}
             {{- with .Values.git.userName }}
             - name: GIT_USER_NAME
               value: {{ . | quote }}
