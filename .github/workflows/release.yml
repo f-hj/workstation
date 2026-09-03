@@ -107,8 +107,11 @@ jobs:
           provenance: mode=max
           sbom: true
 
+      # GitHub artifact attestations are not available for private user-owned
+      # repositories; do not fail the build (the image is already pushed).
       - name: Attest build provenance
         if: steps.flags.outputs.push == 'true'
+        continue-on-error: true
         uses: actions/attest-build-provenance@v2
         with:
           subject-name: ${{ steps.flags.outputs.image }}
