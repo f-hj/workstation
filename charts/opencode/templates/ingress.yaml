@@ -25,12 +25,14 @@ spec:
   {{- end }}
   rules:
     {{- range .Values.ingress.hosts }}
+    {{- /* Lists are replaced, not merged, by Helm: a host given without paths gets "/" Prefix. */}}
+    {{- $paths := .paths | default (list (dict "path" "/" "pathType" "Prefix")) }}
     - host: {{ .host | quote }}
       http:
         paths:
-          {{- range .paths }}
-          - path: {{ .path }}
-            pathType: {{ .pathType }}
+          {{- range $paths }}
+          - path: {{ .path | default "/" }}
+            pathType: {{ .pathType | default "Prefix" }}
             backend:
               service:
                 name: {{ include "opencode.fullname" $ }}

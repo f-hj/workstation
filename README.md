@@ -222,6 +222,8 @@ Chart notes:
 - `config.enabled=true` mounts `config.content` as `opencode.json` and disables
   the env-based generation.
 - Probes are TCP so they keep working when basic auth is enabled.
+- An `ingress.hosts` entry without `paths` gets `/` with `pathType: Prefix`, so
+  a values file only needs `- host: opencode.example.com`.
 - The pod runs as uid/gid 1000 with `fsGroup: 1000`.
 
 ## Repository layout
