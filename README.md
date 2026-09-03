@@ -281,6 +281,67 @@ resources:
   limits: { cpu: "4", memory: 8Gi }
 ```
 
+### Everything from values (Argo CD, helmfile)
+
+The chart can create every Secret it needs, so a single values file is enough
+when a GitOps tool supplies it. Keep that file out of a public repository or
+encrypt it (sealed-secrets, SOPS, Argo CD Vault Plugin), since it holds tokens.
+
+```yaml
+image:
+  tag: sha-8137279            # or leave empty for the chart's appVersion
+imageCredentials:              # GHCR pull secret (private package)
+  create: true
+  registry: ghcr.io
+  username: f-hj
+  password: ghp_...            # read:packages
+secrets:                       # main Secret: provider key, tokens, password
+  openrouterApiKey: sk-or-...
+  githubToken: github_pat_...
+  serverPassword: change-me
+  droneToken: ...
+  extra:
+    DD_API_KEY: ...
+    DD_APPLICATION_KEY: ...
+ssh:                           # optional git-over-SSH key, stored in its own Secret
+  privateKey: |
+    -----BEGIN OPENSSH PRIVATE KEY-----
+    ...
+sshServer:                     # optional SSH access to the workstation
+  enabled: true
+  authorizedKeys:
+    - ssh-ed25519 AAAA... you@laptop
+opencode:
+  model: openrouter/anthropic/claude-sonnet-4.5
+  secretFiles: [DD_API_KEY, DD_APPLICATION_KEY]
+  extraConfig:
+    mcp:
+      datadog:
+        type: remote
+        url: https://mcp.datadoghq.com/api/unstable/mcp-server/mcp
+        oauth: false
+        headers:
+          DD_API_KEY: "{file:/home/dev/.config/workstation/secrets/DD_API_KEY}"
+          DD_APPLICATION_KEY: "{file:/home/dev/.config/workstation/secrets/DD_APPLICATION_KEY}"
+git:
+  userName: Your Name
+  userEmail: you@example.com
+drone:
+  server: https://drone.example.com
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: opencode.example.com
+  tls:
+    clusterIssuer: letsencrypt
+```
+
+Secrets created by the chart: `<release>-opencode` (env for opencode, git, gh,
+drone, MCP), `<release>-opencode-registry` (image pull),
+`<release>-opencode-git-ssh` (git SSH key). Each has an `existingSecret`
+counterpart if you would rather manage it elsewhere.
+
 Chart notes:
 
 - Two `ReadWriteOnce` PVCs are created: `/workspace` (repositories) and

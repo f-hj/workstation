@@ -112,7 +112,7 @@ spec:
             - name: GIT_USER_EMAIL
               value: {{ . | quote }}
             {{- end }}
-            {{- if .Values.ssh.existingSecret }}
+            {{- if include "opencode.gitSshEnabled" . }}
             - name: GIT_SSH_KEY_FILE
               value: /secrets/ssh/{{ .Values.ssh.key }}
             {{- end }}
@@ -163,7 +163,7 @@ spec:
               subPath: opencode.json
               readOnly: true
             {{- end }}
-            {{- if .Values.ssh.existingSecret }}
+            {{- if include "opencode.gitSshEnabled" . }}
             - name: ssh
               mountPath: /secrets/ssh
               readOnly: true
@@ -192,10 +192,10 @@ spec:
           configMap:
             name: {{ include "opencode.fullname" . }}
         {{- end }}
-        {{- if .Values.ssh.existingSecret }}
+        {{- if include "opencode.gitSshEnabled" . }}
         - name: ssh
           secret:
-            secretName: {{ .Values.ssh.existingSecret }}
+            secretName: {{ include "opencode.gitSshSecretName" . }}
             defaultMode: 0400
         {{- end }}
         {{- if and .Values.sshServer.enabled .Values.sshServer.existingSecret }}

@@ -122,21 +122,29 @@ sshServer:
     annotations: {}
 
 # SSH private key for git over SSH (alternative or complement to the token).
-# Create with:
+# Either inline the key (the chart creates the Secret) or reference one:
 #   kubectl create secret generic opencode-ssh --from-file=id_ed25519=$HOME/.ssh/id_ed25519
 ssh:
+  # Inline private key; creates Secret <release>-opencode-git-ssh.
+  privateKey: ""
+  #  privateKey: |
+  #    -----BEGIN OPENSSH PRIVATE KEY-----
+  #    ...
   existingSecret: ""
   key: id_ed25519
 
 # ---------------------------------------------------------------------------
 # Secrets
 # ---------------------------------------------------------------------------
-# Either let the chart create the Secret from the values below, or point
-# existingSecret at one you manage (recommended). Expected keys:
+# With create: true (default) and no existingSecret, the chart creates the
+# Secret from these values, so everything can be supplied through Helm values
+# (Argo CD, helmfile, ...). Alternatively point existingSecret at a Secret you
+# manage. Expected keys in either case:
 #   OPENROUTER_API_KEY (or whatever opencode.apiKeyEnv resolves to)
 #   GITHUB_TOKEN
 #   OPENCODE_SERVER_PASSWORD
 #   DRONE_TOKEN
+#   plus anything referenced by opencode.secretFiles / opencode.keepEnv
 secrets:
   create: true
   existingSecret: ""
@@ -144,8 +152,11 @@ secrets:
   githubToken: ""
   serverPassword: ""
   droneToken: ""
-  # Any additional key/value pairs to put in the generated Secret and expose as env.
+  # Any additional key/value pairs to put in the generated Secret and expose
+  # as env (e.g. DD_API_KEY: "..." for the Datadog MCP example above).
   extra: {}
+  # Annotations on the generated Secret.
+  annotations: {}
 
 # Extra environment variables (plain or valueFrom).
 env: []

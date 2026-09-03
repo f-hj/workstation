@@ -70,6 +70,21 @@ Env var name that carries the provider API key.
 {{- end }}
 
 {{/*
+Git SSH key: chart-created from ssh.privateKey unless ssh.existingSecret is set.
+*/}}
+{{- define "opencode.gitSshEnabled" -}}
+{{- if or .Values.ssh.existingSecret .Values.ssh.privateKey }}true{{- end }}
+{{- end }}
+
+{{- define "opencode.gitSshSecretName" -}}
+{{- if .Values.ssh.existingSecret }}
+{{- .Values.ssh.existingSecret }}
+{{- else }}
+{{- printf "%s-git-ssh" (include "opencode.fullname" .) }}
+{{- end }}
+{{- end }}
+
+{{/*
 Registry pull secret generated from .Values.imageCredentials.
 */}}
 {{- define "opencode.imagePullSecretName" -}}
