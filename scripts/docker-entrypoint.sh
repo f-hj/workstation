@@ -215,6 +215,9 @@ if [[ -n "${SSH_AUTHORIZED_KEYS:-}" || -n "${SSH_AUTHORIZED_KEYS_FILE:-}" ]]; th
   ME="$(id -un)"
   mkdir -p "${HOME}/.ssh/host_keys"
   chmod 700 "${HOME}/.ssh"
+  # Best effort: fsGroup leaves the home volume group writable; fails silently
+  # when the mount point is owned by root.
+  chmod g-w,o-w "${HOME}" 2>/dev/null || true
 
   # authorized_keys from env and/or file
   {
@@ -246,7 +249,11 @@ PubkeyAuthentication yes
 AuthorizedKeysFile ${HOME}/.ssh/authorized_keys
 PermitRootLogin no
 AllowUsers ${ME}
-StrictModes yes
+# The home directory is a Kubernetes volume with fsGroup applied (group
+# writable, often root owned), which StrictModes rejects. authorized_keys is
+# written by the entrypoint in this single-user container, so the check
+# adds nothing here.
+StrictModes no
 X11Forwarding no
 AllowTcpForwarding yes
 AllowAgentForwarding yes
