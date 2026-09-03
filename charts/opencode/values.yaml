@@ -1,6 +1,8 @@
 # Default values for the opencode workstation chart.
 
 replicaCount: 1
+# Old ReplicaSets kept for rollback.
+revisionHistoryLimit: 3
 
 image:
   repository: ghcr.io/f-hj/workstation

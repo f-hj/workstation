@@ -6,6 +6,7 @@ metadata:
     {{- include "opencode.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
   strategy:
     {{- toYaml .Values.strategy | nindent 4 }}
   selector:
