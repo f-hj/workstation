@@ -1,0 +1,19 @@
+apiVersion: v2
+name: opencode
+description: opencode AI coding agent server on a Debian workstation image (build-essential, git, Go, Node.js, yarn)
+type: application
+version: 0.1.0
+# Overridden at package time by CI to match the published image tag.
+appVersion: latest
+home: https://github.com/f-hj/workstation
+sources:
+  - https://github.com/f-hj/workstation
+  - https://github.com/anomalyco/opencode
+keywords:
+  - opencode
+  - ai
+  - coding-agent
+  - workstation
+maintainers:
+  - name: f-hj
+    url: https://github.com/f-hj

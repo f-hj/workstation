@@ -1,0 +1,7 @@
+.git
+.github
+charts
+*.md
+!README.md
+.env
+.env.*

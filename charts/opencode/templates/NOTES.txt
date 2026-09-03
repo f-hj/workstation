@@ -1,0 +1,31 @@
+opencode server deployed.
+
+Image: {{ include "opencode.image" . }}
+Provider: {{ .Values.opencode.provider }} (API key from ${{ include "opencode.apiKeyEnv" . }} in secret "{{ include "opencode.secretName" . }}")
+
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+URL: http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- else }}
+Reach it locally with:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "opencode.fullname" . }} {{ .Values.service.port }}:http
+  curl http://127.0.0.1:{{ .Values.service.port }}/global/health
+
+Then attach a client, e.g. the TUI:
+
+  opencode attach http://127.0.0.1:{{ .Values.service.port }}
+{{- end }}
+
+{{- if not .Values.secrets.serverPassword }}
+{{- if not .Values.secrets.existingSecret }}
+
+WARNING: no OPENCODE_SERVER_PASSWORD set; the server accepts unauthenticated requests.
+Set secrets.serverPassword (or provide it in an existing secret) before exposing it.
+{{- end }}
+{{- end }}
+
+Open a shell in the workstation:
+
+  kubectl -n {{ .Release.Namespace }} exec -it deploy/{{ include "opencode.fullname" . }} -- bash
