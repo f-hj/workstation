@@ -199,14 +199,10 @@ persistence:
 ingress:
   enabled: true
   className: nginx
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt
   hosts:
     - host: opencode.example.com
-      paths: [{ path: /, pathType: Prefix }]
   tls:
-    - secretName: opencode-tls
-      hosts: [opencode.example.com]
+    clusterIssuer: letsencrypt   # cert-manager requests the certificate
 resources:
   requests: { cpu: 500m, memory: 1Gi }
   limits: { cpu: "4", memory: 8Gi }
@@ -239,6 +235,13 @@ Chart notes:
 - Probes are TCP so they keep working when basic auth is enabled.
 - An `ingress.hosts` entry without `paths` gets `/` with `pathType: Prefix`, so
   a values file only needs `- host: opencode.example.com`.
+- HTTPS is on by default when the Ingress is enabled: one TLS block covers all
+  hosts with the secret `<release>-opencode-tls` (override with
+  `ingress.tls.secretName`). Set `ingress.tls.clusterIssuer` or
+  `ingress.tls.issuer` and cert-manager issues the certificate; without one, the
+  secret must already exist. `ingress.forceHttps` (default `true`) adds the
+  HTTP-to-HTTPS redirect annotations for ingress-nginx and Traefik. Set
+  `ingress.tls.enabled: false` for plain HTTP.
 - The pod runs as uid/gid 1000 with `fsGroup: 1000`.
 
 ## Repository layout

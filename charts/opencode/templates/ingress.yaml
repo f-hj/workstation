@@ -1,21 +1,46 @@
 {{- if .Values.ingress.enabled }}
+{{- $ing := .Values.ingress }}
+{{- $tls := $ing.tls }}
+{{- $tlsSecret := $tls.secretName | default (printf "%s-tls" (include "opencode.fullname" .)) }}
+{{- $annotations := dict }}
+{{- if $tls.enabled }}
+  {{- if $tls.clusterIssuer }}
+    {{- $_ := set $annotations "cert-manager.io/cluster-issuer" $tls.clusterIssuer }}
+  {{- else if $tls.issuer }}
+    {{- $_ := set $annotations "cert-manager.io/issuer" $tls.issuer }}
+  {{- end }}
+  {{- if $ing.forceHttps }}
+    {{- $_ := set $annotations "nginx.ingress.kubernetes.io/ssl-redirect" "true" }}
+    {{- $_ := set $annotations "nginx.ingress.kubernetes.io/force-ssl-redirect" "true" }}
+    {{- $_ := set $annotations "traefik.ingress.kubernetes.io/router.entrypoints" "websecure" }}
+    {{- $_ := set $annotations "traefik.ingress.kubernetes.io/router.tls" "true" }}
+  {{- end }}
+{{- end }}
+{{- $annotations = merge (deepCopy ($ing.annotations | default dict)) $annotations }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ include "opencode.fullname" . }}
   labels:
     {{- include "opencode.labels" . | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
+  {{- with $annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  {{- with .Values.ingress.className }}
+  {{- with $ing.className }}
   ingressClassName: {{ . }}
   {{- end }}
-  {{- if .Values.ingress.tls }}
+  {{- if or $tls.enabled $tls.extra }}
   tls:
-    {{- range .Values.ingress.tls }}
+    {{- if $tls.enabled }}
+    - hosts:
+        {{- range $ing.hosts }}
+        - {{ .host | quote }}
+        {{- end }}
+      secretName: {{ $tlsSecret }}
+    {{- end }}
+    {{- range $tls.extra }}
     - hosts:
         {{- range .hosts }}
         - {{ . | quote }}
@@ -24,7 +49,7 @@ spec:
     {{- end }}
   {{- end }}
   rules:
-    {{- range .Values.ingress.hosts }}
+    {{- range $ing.hosts }}
     {{- /* Lists are replaced, not merged, by Helm: a host given without paths gets "/" Prefix. */}}
     {{- $paths := .paths | default (list (dict "path" "/" "pathType" "Prefix")) }}
     - host: {{ .host | quote }}

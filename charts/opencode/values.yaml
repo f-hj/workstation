@@ -147,15 +147,23 @@ ingress:
   enabled: false
   className: ""
   annotations: {}
-  #  cert-manager.io/cluster-issuer: letsencrypt
+  # Hosts without paths get "/" (Prefix).
   hosts:
     - host: opencode.example.com
-      paths:
-        - path: /
-          pathType: Prefix
-  tls: []
-  #  - secretName: opencode-tls
-  #    hosts: [opencode.example.com]
+  tls:
+    # HTTPS is on by default: one TLS block covering every host above.
+    enabled: true
+    # Certificate secret; defaults to <release>-opencode-tls.
+    secretName: ""
+    # cert-manager: set one of these and the certificate is requested for you
+    # (adds the cert-manager.io/cluster-issuer or cert-manager.io/issuer annotation).
+    clusterIssuer: ""
+    issuer: ""
+    # Additional explicit TLS blocks, e.g. [{ secretName: other-tls, hosts: [a.example.com] }].
+    extra: []
+  # Redirect HTTP to HTTPS (annotations for ingress-nginx and Traefik; other
+  # controllers ignore them).
+  forceHttps: true
 
 # ---------------------------------------------------------------------------
 # Runtime

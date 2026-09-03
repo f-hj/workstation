@@ -5,7 +5,7 @@ Provider: {{ .Values.opencode.provider }} (API key from ${{ include "opencode.ap
 
 {{- if .Values.ingress.enabled }}
 {{- range .Values.ingress.hosts }}
-URL: http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+URL: http{{ if $.Values.ingress.tls.enabled }}s{{ end }}://{{ .host }}
 {{- end }}
 {{- else }}
 Reach it locally with:
