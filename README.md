@@ -221,8 +221,10 @@ Chart notes:
   empty the entrypoint seeds dotfiles from `/etc/skel`.
 - `config.enabled=true` mounts `config.content` as `opencode.json` and disables
   the env-based generation.
-- Private registry: either reference existing pull secrets with
-  `imagePullSecrets: [{ name: my-registry }]`, or let the chart create one:
+- Private registry: point at an existing pull secret with
+  `image.pullSecret: my-registry` (or `--set image.pullSecret=my-registry`),
+  list several with `imagePullSecrets: [{ name: other }]`, or let the chart
+  create one:
 
   ```yaml
   imageCredentials:

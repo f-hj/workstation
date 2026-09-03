@@ -27,8 +27,11 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
     spec:
-      {{- if or .Values.imagePullSecrets .Values.imageCredentials.create }}
+      {{- if or .Values.image.pullSecret .Values.imagePullSecrets .Values.imageCredentials.create }}
       imagePullSecrets:
+        {{- with .Values.image.pullSecret }}
+        - name: {{ . }}
+        {{- end }}
         {{- if .Values.imageCredentials.create }}
         - name: {{ include "opencode.imagePullSecretName" . }}
         {{- end }}

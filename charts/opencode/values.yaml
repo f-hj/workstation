@@ -7,8 +7,10 @@ image:
   # Defaults to .Chart.AppVersion (set by CI to the published image tag).
   tag: ""
   pullPolicy: IfNotPresent
+  # Name of an existing registry pull secret in the namespace.
+  pullSecret: ""
 
-# Existing pull secrets to reference, e.g. [{ name: my-registry }].
+# More existing pull secrets to reference, e.g. [{ name: other-registry }].
 imagePullSecrets: []
 
 # Or let the chart create a kubernetes.io/dockerconfigjson pull secret from
