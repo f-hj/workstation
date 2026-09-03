@@ -1,0 +1,10 @@
+.DS_Store
+.git/
+.gitignore
+.vscode/
+*.swp
+*.bak
+*.tmp
+*.orig
+*.tgz
+values.local.yaml

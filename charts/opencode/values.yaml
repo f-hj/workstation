@@ -1,0 +1,191 @@
+# Default values for the opencode workstation chart.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/f-hj/workstation
+  # Defaults to .Chart.AppVersion (set by CI to the published image tag).
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# ---------------------------------------------------------------------------
+# opencode
+# ---------------------------------------------------------------------------
+opencode:
+  # Provider id (openrouter, anthropic, openai, ...). The API key is read from
+  # the env var "<PROVIDER>_API_KEY" (e.g. OPENROUTER_API_KEY) unless
+  # apiKeyEnv is set.
+  provider: openrouter
+  apiKeyEnv: ""
+  # Default model, e.g. "openrouter/anthropic/claude-sonnet-4.5"
+  model: ""
+  smallModel: ""
+  # Override the provider base URL (proxies, self-hosted gateways).
+  baseURL: ""
+  # Browser origins allowed to call the server (space separated).
+  cors: ""
+  # HTTP basic auth username (password comes from secrets.serverPassword).
+  serverUsername: opencode
+  port: 4096
+  # The entrypoint moves secrets into 0600 files and removes them, plus
+  # KUBERNETES_* / service-link variables and anything named *_TOKEN,
+  # *_PASSWORD, *_SECRET, *_API_KEY, ..., from opencode's environment.
+  # OPENCODE_SERVER_PASSWORD is always kept (opencode reads it from env).
+  scrubEnv: true
+  # Variable names that must survive scrubbing (e.g. NPM_TOKEN for a private
+  # registry the agent needs).
+  keepEnv: []
+
+# Optional: ship a complete opencode.json instead of the env-generated one.
+# Mounted at ~/.config/opencode/opencode.json. Use {env:VAR} for secrets.
+config:
+  enabled: false
+  content: |
+    {
+      "$schema": "https://opencode.ai/config.json",
+      "model": "openrouter/anthropic/claude-sonnet-4.5",
+      "provider": {
+        "openrouter": {
+          "options": { "apiKey": "{env:OPENROUTER_API_KEY}" }
+        }
+      }
+    }
+
+# ---------------------------------------------------------------------------
+# git / GitHub
+# ---------------------------------------------------------------------------
+git:
+  userName: ""
+  userEmail: ""
+
+# Drone CI CLI. The token comes from secrets.droneToken (DRONE_TOKEN).
+drone:
+  server: ""
+
+# SSH private key for git over SSH (alternative or complement to the token).
+# Create with:
+#   kubectl create secret generic opencode-ssh --from-file=id_ed25519=$HOME/.ssh/id_ed25519
+ssh:
+  existingSecret: ""
+  key: id_ed25519
+
+# ---------------------------------------------------------------------------
+# Secrets
+# ---------------------------------------------------------------------------
+# Either let the chart create the Secret from the values below, or point
+# existingSecret at one you manage (recommended). Expected keys:
+#   OPENROUTER_API_KEY (or whatever opencode.apiKeyEnv resolves to)
+#   GITHUB_TOKEN
+#   OPENCODE_SERVER_PASSWORD
+#   DRONE_TOKEN
+secrets:
+  create: true
+  existingSecret: ""
+  openrouterApiKey: ""
+  githubToken: ""
+  serverPassword: ""
+  droneToken: ""
+  # Any additional key/value pairs to put in the generated Secret and expose as env.
+  extra: {}
+
+# Extra environment variables (plain or valueFrom).
+env: []
+#  - name: TZ
+#    value: Europe/Paris
+
+# ---------------------------------------------------------------------------
+# Persistence
+# ---------------------------------------------------------------------------
+persistence:
+  workspace:
+    enabled: true
+    existingClaim: ""
+    storageClass: ""
+    accessModes: [ReadWriteOnce]
+    size: 20Gi
+    mountPath: /workspace
+  home:
+    # The whole /home/dev: opencode sessions and auth, Go module cache,
+    # npm/yarn/uv caches, gh and drone config, shell history.
+    # The entrypoint seeds dotfiles from /etc/skel when the volume is empty.
+    enabled: true
+    existingClaim: ""
+    storageClass: ""
+    accessModes: [ReadWriteOnce]
+    size: 10Gi
+    mountPath: /home/dev
+
+# ---------------------------------------------------------------------------
+# Networking
+# ---------------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 4096
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  #  cert-manager.io/cluster-issuer: letsencrypt
+  hosts:
+    - host: opencode.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: opencode-tls
+  #    hosts: [opencode.example.com]
+
+# ---------------------------------------------------------------------------
+# Runtime
+# ---------------------------------------------------------------------------
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  fsGroupChangePolicy: OnRootMismatch
+
+securityContext:
+  allowPrivilegeEscalation: true # the dev user has sudo; set false if you do not need it
+  capabilities:
+    drop: [ALL]
+
+resources: {}
+#  requests: { cpu: 500m, memory: 1Gi }
+#  limits:   { cpu: "4",  memory: 8Gi }
+
+# Probes use TCP so they keep working when basic auth is enabled.
+livenessProbe:
+  tcpSocket:
+    port: http
+  initialDelaySeconds: 20
+  periodSeconds: 30
+readinessProbe:
+  tcpSocket:
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Recreate: the PVCs are ReadWriteOnce.
+strategy:
+  type: Recreate
+
+extraVolumes: []
+extraVolumeMounts: []

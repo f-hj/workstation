@@ -1,0 +1,177 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "opencode.fullname" . }}
+  labels:
+    {{- include "opencode.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    {{- toYaml .Values.strategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "opencode.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if .Values.secrets.create }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "opencode.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "opencode.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      # No FOO_SERVICE_HOST / FOO_PORT_* variables for every Service in the namespace.
+      enableServiceLinks: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: opencode
+          image: {{ include "opencode.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.opencode.port }}
+              protocol: TCP
+          env:
+            - name: OPENCODE_HOST
+              value: "0.0.0.0"
+            - name: OPENCODE_PORT
+              value: {{ .Values.opencode.port | quote }}
+            - name: OPENCODE_PROVIDER
+              value: {{ .Values.opencode.provider | quote }}
+            - name: OPENCODE_PROVIDER_API_KEY_ENV
+              value: {{ include "opencode.apiKeyEnv" . | quote }}
+            {{- with .Values.opencode.model }}
+            - name: OPENCODE_MODEL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.opencode.smallModel }}
+            - name: OPENCODE_SMALL_MODEL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.opencode.baseURL }}
+            - name: OPENCODE_PROVIDER_BASE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.opencode.cors }}
+            - name: OPENCODE_CORS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.opencode.serverUsername }}
+            - name: OPENCODE_SERVER_USERNAME
+              value: {{ . | quote }}
+            {{- end }}
+            - name: OPENCODE_SCRUB_ENV
+              value: {{ .Values.opencode.scrubEnv | quote }}
+            {{- with .Values.opencode.keepEnv }}
+            - name: OPENCODE_KEEP_ENV
+              value: {{ join " " . | quote }}
+            {{- end }}
+            {{- with .Values.git.userName }}
+            - name: GIT_USER_NAME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.git.userEmail }}
+            - name: GIT_USER_EMAIL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.ssh.existingSecret }}
+            - name: GIT_SSH_KEY_FILE
+              value: /secrets/ssh/{{ .Values.ssh.key }}
+            {{- end }}
+            {{- with .Values.drone.server }}
+            - name: DRONE_SERVER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ include "opencode.secretName" . }}
+                optional: true
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- if .Values.persistence.workspace.enabled }}
+            - name: workspace
+              mountPath: {{ .Values.persistence.workspace.mountPath }}
+            {{- end }}
+            {{- if .Values.persistence.home.enabled }}
+            - name: home
+              mountPath: {{ .Values.persistence.home.mountPath }}
+            {{- end }}
+            {{- if .Values.config.enabled }}
+            - name: config
+              mountPath: /home/dev/.config/opencode/opencode.json
+              subPath: opencode.json
+              readOnly: true
+            {{- end }}
+            {{- if .Values.ssh.existingSecret }}
+            - name: ssh
+              mountPath: /secrets/ssh
+              readOnly: true
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        {{- if .Values.persistence.workspace.enabled }}
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-workspace" (include "opencode.fullname" .)) .Values.persistence.workspace.existingClaim }}
+        {{- end }}
+        {{- if .Values.persistence.home.enabled }}
+        - name: home
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-home" (include "opencode.fullname" .)) .Values.persistence.home.existingClaim }}
+        {{- end }}
+        {{- if .Values.config.enabled }}
+        - name: config
+          configMap:
+            name: {{ include "opencode.fullname" . }}
+        {{- end }}
+        {{- if .Values.ssh.existingSecret }}
+        - name: ssh
+          secret:
+            secretName: {{ .Values.ssh.existingSecret }}
+            defaultMode: 0400
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

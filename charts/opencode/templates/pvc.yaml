@@ -1,0 +1,21 @@
+{{- range $name, $pvc := .Values.persistence }}
+{{- if and $pvc.enabled (not $pvc.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "opencode.fullname" $ }}-{{ $name }}
+  labels:
+    {{- include "opencode.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  accessModes:
+    {{- toYaml $pvc.accessModes | nindent 4 }}
+  {{- if $pvc.storageClass }}
+  storageClassName: {{ $pvc.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $pvc.size }}
+{{- end }}
+{{- end }}

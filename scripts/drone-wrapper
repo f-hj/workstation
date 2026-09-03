@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Wrapper for the Drone CLI. The real binary lives in /usr/local/libexec/drone.
+#
+# docker-entrypoint.sh stores DRONE_SERVER / DRONE_TOKEN in
+# $XDG_CONFIG_HOME/drone/env (mode 0600) and removes them from the environment,
+# so the agent's shell does not carry the token around. This wrapper loads them
+# only for the duration of a drone command. Values already present in the
+# environment take precedence.
+set -euo pipefail
+
+env_file="${XDG_CONFIG_HOME:-${HOME}/.config}/drone/env"
+if [[ -r "${env_file}" ]]; then
+  _server="${DRONE_SERVER:-}"
+  _token="${DRONE_TOKEN:-}"
+  # shellcheck disable=SC1090
+  source "${env_file}"
+  [[ -n "${_server}" ]] && export DRONE_SERVER="${_server}"
+  [[ -n "${_token}"  ]] && export DRONE_TOKEN="${_token}"
+fi
+
+exec /usr/local/libexec/drone "$@"
