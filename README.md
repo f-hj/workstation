@@ -56,9 +56,46 @@ config file already exists (for instance one mounted from a ConfigMap).
 | `GIT_SSH_KEY_FILE`               |                  | Path to a mounted private key for SSH remotes                        |
 | `DRONE_SERVER` / `DRONE_TOKEN`   |                  | Drone CI server URL and personal token, read by the `drone` CLI      |
 
-The API key is referenced from the config as `{env:OPENROUTER_API_KEY}`, so the secret
-itself is never written to disk. A project-level `opencode.json` inside `/workspace`
-is merged on top as usual.
+A project-level `opencode.json` inside `/workspace` is merged on top as usual.
+
+## Secrets and environment hygiene
+
+opencode runs the agent's shell commands as the same user and with the same
+environment as the server. To keep tokens out of `env`, out of child processes
+(build scripts, `npm install` hooks) and out of the model's context, the
+entrypoint moves every secret into the tool that needs it and then removes it
+from the environment before `opencode serve` starts:
+
+| Secret                       | Where it ends up                                                     | Used by                          |
+| ---------------------------- | -------------------------------------------------------------------- | -------------------------------- |
+| `OPENROUTER_API_KEY` (or `<PROVIDER>_API_KEY`) | `~/.config/workstation/secrets/<NAME>` (0600), referenced from `opencode.json` as `{file:...}` | opencode |
+| `GITHUB_TOKEN` / `GH_TOKEN`  | `~/.config/workstation/secrets/github_token` (0600) and `gh auth login --with-token` | git (credential helper), `gh` |
+| `DRONE_SERVER` / `DRONE_TOKEN` | `~/.config/drone/env` (0600), loaded by the `drone` wrapper only for the duration of a drone command | `drone` |
+| `OPENCODE_SERVER_PASSWORD`   | stays in the environment: opencode reads it from there               | opencode                         |
+
+After that the entrypoint also unsets:
+
+- `KUBERNETES_*` and Kubernetes service links (`*_SERVICE_HOST`, `*_PORT_*`).
+  The chart additionally sets `enableServiceLinks: false` and does not mount
+  the service account token.
+- Anything named `*_TOKEN`, `*_PASSWORD`, `*_PASSWD`, `*_SECRET`, `*_API_KEY`,
+  `*_APIKEY`, `*_ACCESS_KEY`, `*_PRIVATE_KEY`, `*_CREDENTIALS`.
+
+Set `OPENCODE_KEEP_ENV="NPM_TOKEN FOO_SECRET"` (chart: `opencode.keepEnv`) for
+variables the agent genuinely needs, or `OPENCODE_SCRUB_ENV=false`
+(`opencode.scrubEnv`) to disable scrubbing. The startup log lists what was removed.
+
+Is `gh` logged in? Yes. It normally authenticates from `GH_TOKEN`/`GITHUB_TOKEN`
+directly; since those are removed, the entrypoint runs `gh auth login
+--with-token` once at startup, which stores the token in `~/.config/gh/hosts.yml`.
+`gh auth status` shows the result. This needs network at startup; if it fails the
+log says so and git still works through the file-based credential helper.
+
+Limits: the agent runs as the same Unix user as the server, so it can still read
+those 0600 files (just as it can read opencode's own `auth.json`). Scrubbing
+keeps secrets out of casual `env` dumps and out of inherited environments; it is
+not a sandbox. The files live on the home PVC, so they persist across restarts
+and are refreshed from the environment on every start.
 
 ## GitHub access: which key?
 
@@ -69,9 +106,10 @@ GitHub Settings, Developer settings, Personal access tokens, Fine-grained tokens
 Give it access to the repositories you want the agent to touch and these
 permissions: `Contents: Read and write`, `Metadata: Read-only`, plus
 `Pull requests: Read and write` if you want `gh pr create` to work. Set an
-expiration. Pass it as `GITHUB_TOKEN`. Git uses it through a credential helper
-that reads the environment on each call, and `gh` picks it up automatically.
-Clone with HTTPS URLs (`https://github.com/you/repo.git`).
+expiration. Pass it as `GITHUB_TOKEN`. At startup it is stored for git (a
+credential helper reading a 0600 file) and for `gh` (`gh auth login`), then
+removed from the environment. Clone with HTTPS URLs
+(`https://github.com/you/repo.git`).
 
 **SSH key (alternative).** Generate a dedicated `ed25519` key
 (`ssh-keygen -t ed25519 -C opencode-workstation`) and add the public half to
@@ -190,8 +228,9 @@ Chart notes:
 
 ```
 Dockerfile                          image definition
-scripts/docker-entrypoint.sh        config generation, git/GitHub setup, opencode serve
-scripts/git-credential-github-env   git credential helper reading GITHUB_TOKEN
+scripts/docker-entrypoint.sh        secrets to files, config generation, git/GitHub setup, env scrub, opencode serve
+scripts/git-credential-github-file  git credential helper reading the stored GitHub token
+scripts/drone-wrapper               drone CLI wrapper loading DRONE_SERVER/DRONE_TOKEN from a file
 charts/opencode/                    Helm chart
 .github/workflows/release.yml       build, push image (amd64+arm64) and chart to GHCR
 ```

@@ -2,12 +2,14 @@
 # Entrypoint for the opencode workstation image.
 #
 # Responsibilities:
-#   1. Generate ~/.config/opencode/opencode.json from environment variables
+#   0. Seed dotfiles when the home directory is a fresh, empty volume.
+#   1. Move secrets out of the environment into each tool's own store
+#      (0600 files under $HOME) so the agent's shell does not inherit them.
+#   2. Generate ~/.config/opencode/opencode.json from environment variables
 #      (unless a config file is already present, e.g. mounted from a ConfigMap).
-#   2. Configure git identity and GitHub credentials (token over HTTPS and/or
-#      SSH key).
-#   3. Start `opencode serve` bound to all interfaces, or run whatever command
-#      was passed instead.
+#   3. Configure git identity and GitHub credentials (token and/or SSH key).
+#   4. Scrub the environment (consumed secrets, *_TOKEN/*_PASSWORD/..., KUBERNETES_*).
+#   5. Start `opencode serve` bound to all interfaces, or run the given command.
 #
 # Environment variables (all optional):
 #
@@ -22,22 +24,35 @@
 #
 #   OPENCODE_HOST / OPENCODE_PORT  bind address for `opencode serve` (0.0.0.0 / 4096)
 #   OPENCODE_CORS                  space separated list of allowed browser origins
-#   OPENCODE_SERVER_PASSWORD       enable HTTP basic auth (read by opencode itself)
+#   OPENCODE_SERVER_PASSWORD       enable HTTP basic auth (read by opencode itself, stays in env)
 #   OPENCODE_SERVER_USERNAME       basic auth user, default "opencode" (read by opencode itself)
 #
 #   GIT_USER_NAME / GIT_USER_EMAIL git identity for commits
-#   GITHUB_TOKEN (or GH_TOKEN)     GitHub token used for HTTPS clone/push and the gh CLI
+#   GITHUB_TOKEN (or GH_TOKEN)     GitHub token; stored for git (credential helper) and gh, then unset
 #   GIT_SSH_KEY_FILE               path to a private key (mounted secret) to use for SSH remotes
 #   GIT_SSH_KNOWN_HOSTS_SCAN       "false" to skip ssh-keyscan of github.com
 #
-#   DRONE_SERVER / DRONE_TOKEN     read directly by the drone CLI; nothing to do here
+#   DRONE_SERVER / DRONE_TOKEN     Drone CI; stored for the drone wrapper, then unset
+#
+#   OPENCODE_SCRUB_ENV             "false" to disable environment scrubbing
+#   OPENCODE_KEEP_ENV              space/comma separated variable names exempt from scrubbing
 set -euo pipefail
 
 log() { printf '[entrypoint] %s\n' "$*" >&2; }
 
-CONFIG_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/opencode"
+XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-${HOME}/.config}"
+CONFIG_DIR="${XDG_CONFIG_HOME}/opencode"
 CONFIG_FILE="${CONFIG_DIR}/opencode.json"
-mkdir -p "${CONFIG_DIR}" "${HOME}/.local/share/opencode"
+SECRETS_DIR="${XDG_CONFIG_HOME}/workstation/secrets"
+
+# Variables consumed here and removed from opencode's environment.
+CONSUMED_VARS=()
+
+# Write a secret to a 0600 file (no trailing newline).
+write_secret() { # name value
+  install -d -m 0700 "${SECRETS_DIR}"
+  (umask 077; printf '%s' "$2" > "${SECRETS_DIR}/$1")
+}
 
 # ---------------------------------------------------------------------------
 # 0. home directory (may be a freshly provisioned, empty volume)
@@ -46,33 +61,44 @@ if [[ ! -e "${HOME}/.bashrc" && -d /etc/skel ]]; then
   log "seeding dotfiles into ${HOME} from /etc/skel"
   cp -rn /etc/skel/. "${HOME}/" 2>/dev/null || true
 fi
+mkdir -p "${CONFIG_DIR}" "${HOME}/.local/share/opencode"
 
 # ---------------------------------------------------------------------------
-# 1. opencode configuration
+# 1. provider API key -> file
+# ---------------------------------------------------------------------------
+PROVIDER="${OPENCODE_PROVIDER:-openrouter}"
+KEY_ENV="${OPENCODE_PROVIDER_API_KEY_ENV:-}"
+if [[ -z "${KEY_ENV}" ]]; then
+  KEY_ENV="$(printf '%s' "${PROVIDER}" | tr '[:lower:]-' '[:upper:]_')_API_KEY"
+fi
+KEY_FILE="${SECRETS_DIR}/${KEY_ENV}"
+
+if [[ -n "${!KEY_ENV:-}" ]]; then
+  log "storing \$${KEY_ENV} in ${KEY_FILE}"
+  write_secret "${KEY_ENV}" "${!KEY_ENV}"
+  CONSUMED_VARS+=("${KEY_ENV}")
+elif [[ -s "${KEY_FILE}" ]]; then
+  log "reusing ${KEY_FILE} from a previous start"
+else
+  log "WARNING: ${KEY_ENV} is not set; opencode will have no credentials for provider '${PROVIDER}'"
+fi
+
+# ---------------------------------------------------------------------------
+# 2. opencode configuration
 # ---------------------------------------------------------------------------
 write_config() {
   if [[ -n "${OPENCODE_CONFIG_JSON:-}" ]]; then
     log "writing opencode.json from OPENCODE_CONFIG_JSON"
-    printf '%s\n' "${OPENCODE_CONFIG_JSON}" | jq . > "${CONFIG_FILE}"
+    (umask 077; printf '%s\n' "${OPENCODE_CONFIG_JSON}" | jq . > "${CONFIG_FILE}")
     return
   fi
 
-  local provider="${OPENCODE_PROVIDER:-openrouter}"
-  local key_env="${OPENCODE_PROVIDER_API_KEY_ENV:-}"
-  if [[ -z "${key_env}" ]]; then
-    key_env="$(printf '%s' "${provider}" | tr '[:lower:]-' '[:upper:]_')_API_KEY"
-  fi
+  log "generating opencode.json for provider '${PROVIDER}' (api key from ${KEY_FILE})"
 
-  if [[ -z "${!key_env:-}" ]]; then
-    log "WARNING: ${key_env} is not set; opencode will have no credentials for provider '${provider}'"
-  fi
-
-  log "generating opencode.json for provider '${provider}' (api key from \$${key_env})"
-
-  # The API key is referenced with {env:...} so the secret itself never lands on disk.
+  # The key is referenced with {file:...}; the secret is not in the config nor in the env.
   jq -n \
-    --arg provider "${provider}" \
-    --arg keyref "{env:${key_env}}" \
+    --arg provider "${PROVIDER}" \
+    --arg keyref "{file:${KEY_FILE}}" \
     --arg model "${OPENCODE_MODEL:-}" \
     --arg small_model "${OPENCODE_SMALL_MODEL:-}" \
     --arg base_url "${OPENCODE_PROVIDER_BASE_URL:-}" \
@@ -99,9 +125,10 @@ if [[ -s "${CONFIG_FILE}" && "${OPENCODE_CONFIG_FORCE:-false}" != "true" ]]; the
 else
   write_config
 fi
+CONSUMED_VARS+=(OPENCODE_CONFIG_JSON OPENCODE_CONFIG_FORCE OPENCODE_PROVIDER_API_KEY_ENV OPENCODE_PROVIDER_BASE_URL)
 
 # ---------------------------------------------------------------------------
-# 2. git / GitHub
+# 3. git / GitHub / Drone
 # ---------------------------------------------------------------------------
 if [[ -n "${GIT_USER_NAME:-}" ]]; then
   git config --global user.name "${GIT_USER_NAME}"
@@ -112,15 +139,29 @@ fi
 git config --global init.defaultBranch main
 git config --global pull.rebase false
 git config --global --add safe.directory '*'
+CONSUMED_VARS+=(GIT_USER_NAME GIT_USER_EMAIL)
 
-# Token over HTTPS: a credential helper that reads GITHUB_TOKEN / GH_TOKEN at
-# call time, so the token is never written to disk.
-if [[ -n "${GITHUB_TOKEN:-}${GH_TOKEN:-}" ]]; then
-  log "GitHub token detected; enabling HTTPS credential helper for github.com"
-  git config --global credential.https://github.com.helper /usr/local/bin/git-credential-github-env
-  git config --global credential.https://gist.github.com.helper /usr/local/bin/git-credential-github-env
-  # gh reads GH_TOKEN / GITHUB_TOKEN directly; nothing else to do.
+# GitHub token: stored once, then removed from the environment.
+#   - git: credential helper that reads the token file on each call
+#   - gh:  `gh auth login --with-token` stores it in ~/.config/gh/hosts.yml
+GH_TOKEN_VALUE="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+if [[ -n "${GH_TOKEN_VALUE}" ]]; then
+  log "storing GitHub token for git and gh"
+  write_secret github_token "${GH_TOKEN_VALUE}"
+  git config --global credential.https://github.com.helper /usr/local/bin/git-credential-github-file
+  git config --global credential.https://gist.github.com.helper /usr/local/bin/git-credential-github-file
+  if command -v gh >/dev/null 2>&1; then
+    # gh ignores hosts.yml while GH_TOKEN/GITHUB_TOKEN are set, so log in without them.
+    if env -u GH_TOKEN -u GITHUB_TOKEN gh auth login --hostname github.com --git-protocol https --with-token \
+        < "${SECRETS_DIR}/github_token" >/dev/null 2>&1; then
+      log "gh: logged in (credentials in ${XDG_CONFIG_HOME}/gh/hosts.yml)"
+    else
+      log "WARNING: gh auth login failed (no network yet? invalid token?); run 'gh auth login' manually"
+    fi
+  fi
+  CONSUMED_VARS+=(GITHUB_TOKEN GH_TOKEN)
 fi
+unset GH_TOKEN_VALUE
 
 # SSH key from a mounted secret. Copy so we can enforce 0600 (secret mounts are
 # read-only and may have permissive modes).
@@ -145,10 +186,59 @@ EOF
   else
     log "WARNING: GIT_SSH_KEY_FILE=${GIT_SSH_KEY_FILE} is not readable"
   fi
+  CONSUMED_VARS+=(GIT_SSH_KEY_FILE GIT_SSH_KNOWN_HOSTS_SCAN)
+fi
+
+# Drone CLI: /usr/local/bin/drone is a wrapper that sources this file.
+if [[ -n "${DRONE_TOKEN:-}${DRONE_SERVER:-}" ]]; then
+  log "storing Drone settings for the drone wrapper"
+  install -d -m 0700 "${XDG_CONFIG_HOME}/drone"
+  (umask 077; {
+    [[ -n "${DRONE_SERVER:-}" ]] && printf 'export DRONE_SERVER=%q\n' "${DRONE_SERVER}"
+    [[ -n "${DRONE_TOKEN:-}"  ]] && printf 'export DRONE_TOKEN=%q\n'  "${DRONE_TOKEN}"
+    true
+  } > "${XDG_CONFIG_HOME}/drone/env")
+  CONSUMED_VARS+=(DRONE_SERVER DRONE_TOKEN)
 fi
 
 # ---------------------------------------------------------------------------
-# 3. run
+# 4. scrub the environment
+# ---------------------------------------------------------------------------
+if [[ "${OPENCODE_SCRUB_ENV:-true}" == "true" ]]; then
+  keep=" OPENCODE_SERVER_PASSWORD OPENCODE_SERVER_USERNAME "
+  keep+=" $(printf '%s' "${OPENCODE_KEEP_ENV:-}" | tr ',' ' ') "
+  consumed=" ${CONSUMED_VARS[*]} "
+
+  scrubbed=()
+  for var in $(compgen -e); do
+    [[ "${keep}" == *" ${var} "* ]] && continue
+    if [[ "${consumed}" != *" ${var} "* ]]; then
+      case "${var}" in
+        # kubernetes downward env and service links
+        KUBERNETES_*|*_SERVICE_HOST|*_SERVICE_PORT|*_SERVICE_PORT_*|*_PORT_*_TCP*|*_PORT_*_UDP*) ;;
+        # secret-looking names
+        *_TOKEN|*_PASSWORD|*_PASSWD|*_SECRET|*_SECRET_*|*_API_KEY|*_APIKEY|*_ACCESS_KEY|*_PRIVATE_KEY|*_CREDENTIALS) ;;
+        *) continue ;;
+      esac
+    fi
+    unset "${var}"
+    scrubbed+=("${var}")
+  done
+  # *_PORT for kubernetes service links (e.g. FOO_PORT=tcp://10.0.0.1:80), keep PORT itself
+  for var in $(compgen -e); do
+    [[ "${var}" == *_PORT && "${!var}" == tcp://* ]] || continue
+    [[ "${keep}" == *" ${var} "* ]] && continue
+    unset "${var}"
+    scrubbed+=("${var}")
+  done
+  if ((${#scrubbed[@]})); then
+    log "removed from environment: ${scrubbed[*]}"
+  fi
+  unset OPENCODE_KEEP_ENV OPENCODE_SCRUB_ENV keep consumed scrubbed var
+fi
+
+# ---------------------------------------------------------------------------
+# 5. run
 # ---------------------------------------------------------------------------
 if [[ "${1:-serve}" == "serve" ]]; then
   shift || true

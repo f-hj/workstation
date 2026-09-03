@@ -32,6 +32,9 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "opencode.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      # No FOO_SERVICE_HOST / FOO_PORT_* variables for every Service in the namespace.
+      enableServiceLinks: false
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
@@ -72,6 +75,12 @@ spec:
             {{- with .Values.opencode.serverUsername }}
             - name: OPENCODE_SERVER_USERNAME
               value: {{ . | quote }}
+            {{- end }}
+            - name: OPENCODE_SCRUB_ENV
+              value: {{ .Values.opencode.scrubEnv | quote }}
+            {{- with .Values.opencode.keepEnv }}
+            - name: OPENCODE_KEEP_ENV
+              value: {{ join " " . | quote }}
             {{- end }}
             {{- with .Values.git.userName }}
             - name: GIT_USER_NAME

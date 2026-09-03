@@ -163,12 +163,13 @@ RUN set -eux; \
     install -m 0755 "/tmp/uv-${UV_TRIPLE}/uv" "/tmp/uv-${UV_TRIPLE}/uvx" /usr/local/bin/; \
     rm -rf /tmp/uv.tar.gz "/tmp/uv-${UV_TRIPLE}"; \
     uv --version; \
-    # drone CLI (https://github.com/harness/drone-cli)
+    # drone CLI (https://github.com/harness/drone-cli); /usr/local/bin/drone is a
+    # wrapper (scripts/drone-wrapper) that loads DRONE_SERVER/DRONE_TOKEN from a file.
     curl -fsSL "https://github.com/harness/drone-cli/releases/latest/download/drone_linux_${TARGETARCH}.tar.gz" \
         | tar -xz -C /tmp drone; \
-    install -m 0755 /tmp/drone /usr/local/bin/drone; \
+    install -D -m 0755 /tmp/drone /usr/local/libexec/drone; \
     rm -f /tmp/drone; \
-    drone --version
+    /usr/local/libexec/drone --version
 
 # ---------------------------------------------------------------------------
 # Non-root user, directories, entrypoint
@@ -187,7 +188,8 @@ RUN set -eux; \
     chown -R "${USER_UID}:${USER_GID}" /workspace "/home/${USERNAME}"
 
 COPY --chmod=0755 scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-COPY --chmod=0755 scripts/git-credential-github-env /usr/local/bin/git-credential-github-env
+COPY --chmod=0755 scripts/git-credential-github-file /usr/local/bin/git-credential-github-file
+COPY --chmod=0755 scripts/drone-wrapper /usr/local/bin/drone
 
 USER ${USERNAME}
 WORKDIR /workspace
@@ -208,6 +210,10 @@ EXPOSE 4096
 #   /home/dev      opencode sessions/auth, Go module cache, npm/yarn/uv caches,
 #                  gh and drone config, shell history. The entrypoint seeds
 #                  dotfiles from /etc/skel when the home volume starts empty.
+#
+# Secrets passed as env vars (provider API key, GITHUB_TOKEN, DRONE_TOKEN, ...)
+# are moved by the entrypoint into 0600 files under ~/.config and removed from
+# the environment before opencode starts. See scripts/docker-entrypoint.sh.
 
 # /global/health is behind basic auth when OPENCODE_SERVER_PASSWORD is set.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \

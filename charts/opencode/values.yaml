@@ -31,6 +31,14 @@ opencode:
   # HTTP basic auth username (password comes from secrets.serverPassword).
   serverUsername: opencode
   port: 4096
+  # The entrypoint moves secrets into 0600 files and removes them, plus
+  # KUBERNETES_* / service-link variables and anything named *_TOKEN,
+  # *_PASSWORD, *_SECRET, *_API_KEY, ..., from opencode's environment.
+  # OPENCODE_SERVER_PASSWORD is always kept (opencode reads it from env).
+  scrubEnv: true
+  # Variable names that must survive scrubbing (e.g. NPM_TOKEN for a private
+  # registry the agent needs).
+  keepEnv: []
 
 # Optional: ship a complete opencode.json instead of the env-generated one.
 # Mounted at ~/.config/opencode/opencode.json. Use {env:VAR} for secrets.
