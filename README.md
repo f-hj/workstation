@@ -13,6 +13,7 @@ development toolchain, published to GitHub Container Registry together with a He
 - Debian `stable-slim`, non-root user `dev` (uid 1000) with passwordless `sudo`
 - `build-essential`, cmake, pkg-config, libssl-dev, git, git-lfs, ripgrep, fd, fzf, jq
 - GitHub CLI (`gh`), Drone CI CLI (`drone`), Docker CLI with buildx and compose
+- Helm, Argo CD CLI (`argocd`), Scaleway CLI (`scw`)
 - Python 3 with `uv` and `uvx`
 - Go (latest stable at build time)
 - Node.js (latest at build time) with npm, yarn, corepack

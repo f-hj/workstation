@@ -183,6 +183,35 @@ RUN set -eux; \
     /usr/local/libexec/drone --version
 
 # ---------------------------------------------------------------------------
+# Helm, Argo CD CLI, Scaleway CLI (latest releases, checksum-verified)
+# ---------------------------------------------------------------------------
+RUN set -eux; \
+    # helm
+    HELM_VERSION="$(curl -fsSL https://get.helm.sh/helm-latest-version)"; \
+    curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-${TARGETARCH}.tar.gz" -o /tmp/helm.tar.gz; \
+    curl -fsSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-${TARGETARCH}.tar.gz.sha256sum" | sed 's# .*# /tmp/helm.tar.gz#' | sha256sum -c -; \
+    tar -xzf /tmp/helm.tar.gz -C /tmp; \
+    install -m 0755 "/tmp/linux-${TARGETARCH}/helm" /usr/local/bin/helm; \
+    rm -rf /tmp/helm.tar.gz "/tmp/linux-${TARGETARCH}"; \
+    helm version; \
+    # argocd
+    ARGOCD_BASE="https://github.com/argoproj/argo-cd/releases/latest/download"; \
+    curl -fsSL "${ARGOCD_BASE}/argocd-linux-${TARGETARCH}" -o /tmp/argocd; \
+    curl -fsSL "${ARGOCD_BASE}/cli_checksums.txt" | grep " argocd-linux-${TARGETARCH}\$" | sed 's# .*# /tmp/argocd#' | sha256sum -c -; \
+    install -m 0755 /tmp/argocd /usr/local/bin/argocd; \
+    rm -f /tmp/argocd; \
+    argocd version --client; \
+    # scaleway cli (asset names embed the version; read it from SHA256SUMS)
+    SCW_BASE="https://github.com/scaleway/scaleway-cli/releases/latest/download"; \
+    curl -fsSL "${SCW_BASE}/SHA256SUMS" -o /tmp/scw-sums.txt; \
+    SCW_VERSION="$(grep -oE 'scaleway-cli_[0-9]+\.[0-9]+\.[0-9]+_linux_amd64' /tmp/scw-sums.txt | head -n1 | sed -E 's/scaleway-cli_([^_]+)_.*/\1/')"; \
+    curl -fsSL "${SCW_BASE}/scaleway-cli_${SCW_VERSION}_linux_${TARGETARCH}" -o /tmp/scw; \
+    grep " scaleway-cli_${SCW_VERSION}_linux_${TARGETARCH}\$" /tmp/scw-sums.txt | sed 's# .*# /tmp/scw#' | sha256sum -c -; \
+    install -m 0755 /tmp/scw /usr/local/bin/scw; \
+    rm -f /tmp/scw /tmp/scw-sums.txt; \
+    scw version
+
+# ---------------------------------------------------------------------------
 # Non-root user, directories, entrypoint
 # ---------------------------------------------------------------------------
 RUN set -eux; \
