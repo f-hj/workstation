@@ -135,7 +135,15 @@ RUN set -eux; \
     echo "${EXPECTED}  /tmp/go.tar.gz" | sha256sum -c -; \
     tar -xzf /tmp/go.tar.gz -C /usr/local --no-same-owner; \
     rm -f /tmp/go.tar.gz; \
-    go version
+    go version; \
+    # Login shells (ssh) do not inherit the image ENV; provide it via profile.d too.
+    printf '%s\n' \
+        'export GOROOT=/usr/local/go' \
+        'export GOPATH="${GOPATH:-$HOME/go}"' \
+        'export GOTOOLCHAIN="${GOTOOLCHAIN:-auto}"' \
+        'case ":$PATH:" in *":/usr/local/go/bin:"*) ;; *) export PATH="$GOPATH/bin:/usr/local/go/bin:$HOME/.local/bin:$PATH" ;; esac' \
+        > /etc/profile.d/workstation.sh; \
+    chmod 0644 /etc/profile.d/workstation.sh
 
 # ---------------------------------------------------------------------------
 # opencode (latest release by default)

@@ -266,6 +266,14 @@ if [[ -n "${SSH_AUTHORIZED_KEYS:-}" || -n "${SSH_AUTHORIZED_KEYS_FILE:-}" ]]; th
   [[ -f "${HOME}/.ssh/host_keys/ssh_host_rsa_key" ]] || \
     ssh-keygen -q -N '' -t rsa -b 4096 -f "${HOME}/.ssh/host_keys/ssh_host_rsa_key"
 
+  # sshd does not pass the container environment to sessions; hand over the
+  # toolchain variables explicitly so `ssh host go version` and interactive
+  # shells see the same PATH as the agent.
+  SSH_SETENV=""
+  for v in PATH GOROOT GOPATH GOTOOLCHAIN DOCKER_HOST LANG LC_ALL; do
+    [[ -n "${!v:-}" ]] && SSH_SETENV+=" ${v}=${!v}"
+  done
+
   SSHD_CONFIG="${XDG_CONFIG_HOME}/workstation/sshd_config"
   install -d -m 0700 "${XDG_CONFIG_HOME}/workstation"
   cat > "${SSHD_CONFIG}" <<EOF
@@ -293,6 +301,7 @@ ClientAliveInterval 60
 ClientAliveCountMax 3
 LogLevel INFO
 Subsystem sftp /usr/lib/openssh/sftp-server
+${SSH_SETENV:+SetEnv${SSH_SETENV}}
 EOF
   if (( KEY_COUNT == 0 )); then
     log "WARNING: SSH server requested but no authorized keys found; not starting sshd"
