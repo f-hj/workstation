@@ -120,6 +120,10 @@ spec:
             - name: DRONE_SERVER
               value: {{ . | quote }}
             {{- end }}
+            {{- if .Values.docker.enabled }}
+            - name: DOCKER_HOST
+              value: unix:///run/docker/docker.sock
+            {{- end }}
             {{- if .Values.sshServer.enabled }}
             - name: SSH_SERVER_PORT
               value: {{ .Values.sshServer.port | quote }}
@@ -173,10 +177,74 @@ spec:
               mountPath: /secrets/ssh-server
               readOnly: true
             {{- end }}
+            {{- if .Values.docker.enabled }}
+            - name: docker-sock
+              mountPath: /run/docker
+            {{- end }}
             {{- with .Values.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+        {{- if .Values.docker.enabled }}
+        # Docker daemon. Passing "dockerd" as the first argument makes the image
+        # entrypoint skip its default tcp://0.0.0.0 listener; only the shared
+        # Unix socket is exposed, group-owned by the workstation user.
+        - name: dind
+          image: "{{ .Values.docker.image.repository }}:{{ .Values.docker.image.tag }}"
+          imagePullPolicy: {{ .Values.docker.image.pullPolicy }}
+          securityContext:
+            privileged: true
+            runAsUser: 0
+            runAsGroup: 0
+          command: ["dockerd-entrypoint.sh"]
+          args:
+            - dockerd
+            - --host=unix:///run/docker/docker.sock
+            - --group={{ .Values.podSecurityContext.runAsGroup | default 1000 }}
+            {{- range .Values.docker.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: DOCKER_HOST
+              value: unix:///run/docker/docker.sock
+          readinessProbe:
+            exec:
+              command: ["docker", "version", "--format", "{{ "{{" }}.Server.Version{{ "}}" }}"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["docker", "version", "--format", "{{ "{{" }}.Server.Version{{ "}}" }}"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.docker.resources | nindent 12 }}
+          volumeMounts:
+            - name: docker-sock
+              mountPath: /run/docker
+            - name: docker-data
+              mountPath: /var/lib/docker
+            # Same paths as the workstation so `docker run -v /workspace/...` bind mounts work.
+            {{- if .Values.persistence.workspace.enabled }}
+            - name: workspace
+              mountPath: {{ .Values.persistence.workspace.mountPath }}
+            {{- end }}
+            {{- if .Values.persistence.home.enabled }}
+            - name: home
+              mountPath: {{ .Values.persistence.home.mountPath }}
+            {{- end }}
+        {{- end }}
       volumes:
+        {{- if .Values.docker.enabled }}
+        - name: docker-sock
+          emptyDir: {}
+        - name: docker-data
+          {{- if .Values.docker.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ default (printf "%s-docker" (include "opencode.fullname" .)) .Values.docker.persistence.existingClaim }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
         {{- if .Values.persistence.workspace.enabled }}
         - name: workspace
           persistentVolumeClaim:

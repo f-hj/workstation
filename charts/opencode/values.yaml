@@ -102,6 +102,30 @@ drone:
   server: ""
 
 # ---------------------------------------------------------------------------
+# Docker: a privileged docker:dind sidecar; the workstation gets the CLI,
+# buildx and compose and talks to it over a Unix socket shared inside the pod
+# (no TCP listener). The namespace must allow privileged pods.
+# ---------------------------------------------------------------------------
+docker:
+  enabled: false
+  image:
+    repository: docker
+    tag: dind
+    pullPolicy: IfNotPresent
+  # Extra dockerd flags, e.g. ["--registry-mirror=https://mirror.example.com"]
+  extraArgs: []
+  # /var/lib/docker (pulled images, build cache, volumes). emptyDir when disabled.
+  persistence:
+    enabled: false
+    existingClaim: ""
+    storageClass: ""
+    accessModes: [ReadWriteOnce]
+    size: 20Gi
+  resources: {}
+  #  requests: { cpu: 250m, memory: 512Mi }
+  #  limits:   { cpu: "2",  memory: 4Gi }
+
+# ---------------------------------------------------------------------------
 # SSH access to the workstation (sshd runs unprivileged as "dev", key-only)
 # ---------------------------------------------------------------------------
 sshServer:

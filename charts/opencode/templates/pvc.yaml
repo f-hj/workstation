@@ -1,4 +1,7 @@
-{{- range $name, $pvc := .Values.persistence }}
+{{- $claims := dict }}
+{{- range $name, $pvc := .Values.persistence }}{{- $_ := set $claims $name $pvc }}{{- end }}
+{{- if .Values.docker.enabled }}{{- $_ := set $claims "docker" .Values.docker.persistence }}{{- end }}
+{{- range $name, $pvc := $claims }}
 {{- if and $pvc.enabled (not $pvc.existingClaim) }}
 ---
 apiVersion: v1

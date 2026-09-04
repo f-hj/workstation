@@ -12,7 +12,7 @@ development toolchain, published to GitHub Container Registry together with a He
 
 - Debian `stable-slim`, non-root user `dev` (uid 1000) with passwordless `sudo`
 - `build-essential`, cmake, pkg-config, libssl-dev, git, git-lfs, ripgrep, fd, fzf, jq
-- GitHub CLI (`gh`) and Drone CI CLI (`drone`)
+- GitHub CLI (`gh`), Drone CI CLI (`drone`), Docker CLI with buildx and compose
 - Python 3 with `uv` and `uvx`
 - Go (latest stable at build time)
 - Node.js (latest at build time) with npm, yarn, corepack
@@ -136,6 +136,35 @@ Put `DD_API_KEY` and `DD_APPLICATION_KEY` in the Secret (`secrets.extra` or your
 permission plus the permissions of the resources you query. Local MCP servers
 work the same way with `type: local` and a `command` array; `npx`, `uvx` and
 `go run` are all available in the image.
+
+## Docker inside the workstation
+
+The image ships the Docker CLI, buildx and compose. In Kubernetes the daemon
+runs as a privileged `docker:dind` sidecar in the same pod:
+
+```yaml
+docker:
+  enabled: true
+  persistence:
+    enabled: true     # keep pulled images and build cache across restarts
+    size: 20Gi
+```
+
+- The daemon listens only on a Unix socket in a volume shared between the two
+  containers; there is no TCP listener, so nothing is exposed to the cluster
+  network. The socket is group-owned by uid 1000, and `DOCKER_HOST` is set in
+  the workstation, so `docker build`, `docker run` and `docker compose` work
+  for the agent and in SSH sessions.
+- `/workspace` and `/home/dev` are mounted into the sidecar at the same paths,
+  so bind mounts such as `docker run -v /workspace/app:/app` resolve correctly.
+- The sidecar needs `privileged: true`; the namespace must allow that (Pod
+  Security Admission `privileged` level, or no PSA). The workstation container
+  itself stays unprivileged.
+- Containers started by the agent run as root inside the sidecar. Treat Docker
+  access as root on that node, as with any Docker-in-Docker setup.
+
+With plain Docker on your machine, mount the host socket instead:
+`-v /var/run/docker.sock:/var/run/docker.sock --group-add $(stat -c %g /var/run/docker.sock)`.
 
 ## SSH access to the workstation
 
