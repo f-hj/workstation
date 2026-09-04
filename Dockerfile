@@ -142,6 +142,8 @@ RUN set -eux; \
         'export GOPATH="${GOPATH:-$HOME/go}"' \
         'export GOTOOLCHAIN="${GOTOOLCHAIN:-auto}"' \
         'case ":$PATH:" in *":/usr/local/go/bin:"*) ;; *) export PATH="$GOPATH/bin:/usr/local/go/bin:$HOME/.local/bin:$PATH" ;; esac' \
+        '# docker:dind sidecar socket (see charts/opencode values: docker.enabled)' \
+        '[ -z "${DOCKER_HOST:-}" ] && [ -S /run/docker/docker.sock ] && export DOCKER_HOST=unix:///run/docker/docker.sock' \
         > /etc/profile.d/workstation.sh; \
     chmod 0644 /etc/profile.d/workstation.sh
 
