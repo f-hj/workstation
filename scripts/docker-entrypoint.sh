@@ -7,6 +7,8 @@
 #      (0600 files under $HOME) so the agent's shell does not inherit them.
 #   2. Generate ~/.config/opencode/opencode.json from environment variables at
 #      every start (unless a read-only one is mounted, e.g. from a ConfigMap).
+#      The file uses the v1 field names, which opencode v2 reads and normalizes
+#      (https://opencode.ai/v2/docs/migrate-v1/).
 #   3. Configure git identity and GitHub credentials (token and/or SSH key).
 #   4. Scrub the environment (consumed secrets, *_TOKEN/*_PASSWORD/..., KUBERNETES_*).
 #   5. Start `opencode serve` bound to all interfaces, or run the given command.

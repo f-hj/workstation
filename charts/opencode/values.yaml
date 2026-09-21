@@ -62,7 +62,8 @@ opencode:
   # environment. Reference them in extraConfig with {file:...}.
   secretFiles: []
   # Deep-merged into the generated opencode.json: MCP servers, permissions,
-  # agents, instructions, ... See https://opencode.ai/docs/config/
+  # agents, instructions, ... See https://opencode.ai/v2/docs/config/
+  # (the v1 shapes below keep working: v2 normalizes them on load).
   extraConfig: {}
   # Example: Datadog's hosted MCP server, keys stored as files.
   #  secretFiles: [DD_API_KEY, DD_APPLICATION_KEY]
