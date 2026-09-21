@@ -4,10 +4,10 @@
 #   - Debian stable (slim)
 #   - build-essential, git, gh, ripgrep and friends
 #   - Go (latest stable), Node.js (latest) + yarn
-#   - opencode (https://opencode.ai) running as an HTTP server
+#   - opencode v2 (https://opencode.ai/v2) running as an HTTP server
 #
 # Every "latest" is resolved at build time so a rebuild refreshes the toolchain.
-# Pin with --build-arg NODE_VERSION=v24.20.0 GO_VERSION=go1.27.1 OPENCODE_VERSION=1.18.26
+# Pin with --build-arg NODE_VERSION=v24.20.0 GO_VERSION=go1.27.1 OPENCODE_VERSION=2.0.12
 
 FROM debian:stable-slim
 
@@ -148,25 +148,39 @@ RUN set -eux; \
     chmod 0644 /etc/profile.d/workstation.sh
 
 # ---------------------------------------------------------------------------
-# opencode (latest release by default)
+# opencode v2 (latest release by default, checksum-verified)
+#
+# v2 is distributed as npm platform packages (@opencode/cli-linux-<arch>), the
+# same source https://opencode.ai/v2/install uses; GitHub "latest" releases
+# still point at the 1.x line. The version is resolved from the @opencode/cli
+# dist-tag and the tarball is checked against the registry's sha512 integrity.
+# The x64 build requires AVX2 (@opencode/cli-linux-x64-baseline otherwise).
 # ---------------------------------------------------------------------------
 RUN set -eux; \
     case "${TARGETARCH}" in \
         amd64) OC_ARCH=x64 ;; \
         arm64) OC_ARCH=arm64 ;; \
+        *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
     esac; \
+    OPENCODE_VERSION="${OPENCODE_VERSION#v}"; \
     if [ "${OPENCODE_VERSION}" = "latest" ]; then \
-        URL="https://github.com/anomalyco/opencode/releases/latest/download/opencode-linux-${OC_ARCH}.tar.gz"; \
-    else \
-        URL="https://github.com/anomalyco/opencode/releases/download/v${OPENCODE_VERSION#v}/opencode-linux-${OC_ARCH}.tar.gz"; \
+        OPENCODE_VERSION="$(curl -fsSL 'https://registry.npmjs.org/@opencode%2Fcli/latest' | jq -r .version)"; \
     fi; \
-    echo "Installing opencode from ${URL}"; \
+    case "${OPENCODE_VERSION}" in \
+        2.*) ;; \
+        *) echo "OPENCODE_VERSION=${OPENCODE_VERSION}: only opencode 2.x is supported" >&2; exit 1 ;; \
+    esac; \
+    META="$(curl -fsSL "https://registry.npmjs.org/@opencode%2Fcli-linux-${OC_ARCH}/${OPENCODE_VERSION}")"; \
+    URL="$(printf '%s' "${META}" | jq -er .dist.tarball)"; \
+    INTEGRITY="$(printf '%s' "${META}" | jq -er .dist.integrity)"; \
+    echo "Installing opencode ${OPENCODE_VERSION} (${OC_ARCH}) from ${URL}"; \
+    curl -fsSL "${URL}" -o /tmp/opencode.tgz; \
+    EXPECTED="$(printf '%s' "${INTEGRITY#sha512-}" | base64 -d | od -An -tx1 | tr -d ' \n')"; \
+    echo "${EXPECTED}  /tmp/opencode.tgz" | sha512sum -c -; \
     mkdir -p /tmp/opencode; \
-    curl -fsSL "${URL}" | tar -xz -C /tmp/opencode; \
-    BIN="$(find /tmp/opencode -type f -name opencode | head -n1)"; \
-    test -n "${BIN}"; \
-    install -m 0755 "${BIN}" /usr/local/bin/opencode; \
-    rm -rf /tmp/opencode; \
+    tar -xzf /tmp/opencode.tgz -C /tmp/opencode --strip-components=1 package/bin/opencode; \
+    install -m 0755 /tmp/opencode/bin/opencode /usr/local/bin/opencode; \
+    rm -rf /tmp/opencode /tmp/opencode.tgz; \
     opencode --version
 
 # ---------------------------------------------------------------------------
@@ -266,10 +280,10 @@ EXPOSE 4096 2222
 # are moved by the entrypoint into 0600 files under ~/.config and removed from
 # the environment before opencode starts. See scripts/docker-entrypoint.sh.
 
-# /global/health is behind basic auth when OPENCODE_SERVER_PASSWORD is set.
+# /api/info (v2 server info) is behind basic auth when OPENCODE_SERVER_PASSWORD is set.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS ${OPENCODE_SERVER_PASSWORD:+-u "${OPENCODE_SERVER_USERNAME:-opencode}:${OPENCODE_SERVER_PASSWORD}"} \
-        "http://127.0.0.1:${OPENCODE_PORT}/global/health" >/dev/null || exit 1
+        "http://127.0.0.1:${OPENCODE_PORT}/api/info" >/dev/null || exit 1
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/docker-entrypoint.sh"]
 CMD ["serve"]

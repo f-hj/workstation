@@ -1,6 +1,6 @@
 # workstation
 
-A containerised [opencode](https://opencode.ai) server on Debian stable, with a full
+A containerised [opencode v2](https://opencode.ai/v2) server on Debian stable, with a full
 development toolchain, published to GitHub Container Registry together with a Helm chart.
 
 | Artifact   | Location                                          |
@@ -17,14 +17,19 @@ development toolchain, published to GitHub Container Registry together with a He
 - Python 3 with `uv` and `uvx`
 - Go (latest stable at build time)
 - Node.js (latest at build time) with npm, yarn, corepack
-- `opencode` (latest release at build time) started as `opencode serve` on port 4096
+- `opencode` v2 (latest 2.x release at build time) started as `opencode serve` on port 4096
 
 Every "latest" is resolved when the image is built. The workflow rebuilds weekly and
 on every push to `main`; pin versions with build args or by dispatching the workflow:
 
 ```sh
-docker build --build-arg NODE_VERSION=v24.20.0 --build-arg GO_VERSION=go1.27.1 --build-arg OPENCODE_VERSION=1.18.26 .
+docker build --build-arg NODE_VERSION=v24.20.0 --build-arg GO_VERSION=go1.27.1 --build-arg OPENCODE_VERSION=2.0.12 .
 ```
+
+opencode v2 is installed from its npm platform package (`@opencode/cli-linux-<arch>`,
+the source behind `https://opencode.ai/v2/install`) and verified against the
+registry's sha512 integrity. `OPENCODE_VERSION` must be a 2.x version; the 1.x
+GitHub releases are no longer used. The x64 build needs a CPU with AVX2.
 
 ## Tags
 
@@ -107,9 +112,15 @@ and are refreshed from the environment on every start.
 
 `opencode.extraConfig` (env: `OPENCODE_EXTRA_CONFIG_JSON`) is deep-merged into
 the generated `opencode.json`, so anything from the
-[opencode config reference](https://opencode.ai/docs/config/) can be added
+[opencode config reference](https://opencode.ai/v2/docs/config/) can be added
 without replacing the provider setup: MCP servers, permissions, agents,
-instructions. Secrets that MCP servers need go through `opencode.secretFiles`
+instructions. The generated file uses the v1 field names (`provider`,
+`small_model`, `mcp.<name>`), which v2 reads and normalizes on load, so the
+examples below keep working; native v2 shapes (`providers`, `mcp.servers`,
+`permissions`) can be mixed in at the top level. See
+[Migrate from V1](https://opencode.ai/v2/docs/migrate-v1/).
+
+Secrets that MCP servers need go through `opencode.secretFiles`
 (env: `OPENCODE_SECRET_FILES`): the listed variables are stored as 0600 files
 under `/home/dev/.config/workstation/secrets/<NAME>`, removed from the
 environment, and referenced with `{file:...}`.
@@ -195,8 +206,12 @@ sshServer:
     nodePort: 30022     # optional fixed port
 ```
 
-Then `ssh -p 30022 dev@<node-ip>`. Running `ssh -t -p 30022 dev@<node-ip> opencode`
-gives you the full opencode TUI inside the pod, attached to the local server.
+Then `ssh -p 30022 dev@<node-ip>`. Running
+`ssh -t -p 30022 dev@<node-ip> opencode --server http://127.0.0.1:4096` gives you the
+full opencode TUI inside the pod, connected to the running server. Without
+`--server`, opencode v2 starts its own background service instead. When basic auth is
+on, set `OPENCODE_SERVER_PASSWORD` (and `OPENCODE_SERVER_USERNAME` if changed) in the
+SSH session: the client reads them from the environment, not from the URL.
 `sshServer.existingSecret` takes a Secret with an `authorized_keys` entry instead
 of listing keys in values.
 
@@ -240,13 +255,14 @@ docker run -d --name opencode \
   -v opencode-home:/home/dev \
   ghcr.io/f-hj/workstation:latest
 
-curl -u opencode:change-me http://127.0.0.1:4096/global/health
+curl -u opencode:change-me http://127.0.0.1:4096/api/info
 ```
 
-Attach the opencode TUI from your machine:
+Connect the opencode v2 TUI from your machine (the password comes from the
+environment; credentials in the URL are not supported):
 
 ```sh
-opencode attach http://opencode:change-me@127.0.0.1:4096
+OPENCODE_SERVER_PASSWORD=change-me opencode --server http://127.0.0.1:4096
 ```
 
 Or get a shell in the workstation:

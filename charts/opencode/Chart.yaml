@@ -1,6 +1,6 @@
 apiVersion: v2
 name: opencode
-description: opencode AI coding agent server on a Debian workstation image (build-essential, git, Go, Node.js, yarn)
+description: opencode v2 AI coding agent server on a Debian workstation image (build-essential, git, Go, Node.js, yarn)
 type: application
 version: 0.1.0
 # Overridden at package time by CI to match the published image tag.

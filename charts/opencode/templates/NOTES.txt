@@ -11,11 +11,11 @@ URL: http{{ if $.Values.ingress.tls.enabled }}s{{ end }}://{{ .host }}
 Reach it locally with:
 
   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "opencode.fullname" . }} {{ .Values.service.port }}:http
-  curl http://127.0.0.1:{{ .Values.service.port }}/global/health
+  curl http://127.0.0.1:{{ .Values.service.port }}/api/info
 
-Then attach a client, e.g. the TUI:
+Then connect a client, e.g. the TUI (OPENCODE_SERVER_PASSWORD when basic auth is on):
 
-  opencode attach http://127.0.0.1:{{ .Values.service.port }}
+  opencode --server http://127.0.0.1:{{ .Values.service.port }}
 {{- end }}
 
 {{- if not .Values.secrets.serverPassword }}
@@ -43,5 +43,6 @@ SSH (key-only, user "dev"):
 {{- end }}
 
   The host key fingerprint is printed in the pod log at startup ("SSH host key:").
-  Run the TUI inside the pod: ssh -t ... dev@... opencode
+  Run the TUI inside the pod against the running server:
+    ssh -t ... dev@... opencode --server http://127.0.0.1:{{ .Values.opencode.port }}
 {{- end }}

@@ -18,7 +18,7 @@ on:
         description: "Go version (e.g. go1.27.1) or latest"
         default: latest
       opencode_version:
-        description: "opencode version (e.g. 1.18.26) or latest"
+        description: "opencode v2 version (e.g. 2.0.12) or latest"
         default: latest
 
 concurrency:
