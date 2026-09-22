@@ -7,7 +7,7 @@
 #   - opencode v2 (https://opencode.ai/v2) running as an HTTP server
 #
 # Every "latest" is resolved at build time so a rebuild refreshes the toolchain.
-# Pin with --build-arg NODE_VERSION=v24.20.0 GO_VERSION=go1.27.1 OPENCODE_VERSION=2.0.12
+# Pin with --build-arg NODE_VERSION=v24.20.0 GO_VERSION=go1.27.1 OPENCODE_VERSION=2.0.13
 
 FROM debian:stable-slim
 

@@ -23,7 +23,7 @@ Every "latest" is resolved when the image is built. The workflow rebuilds weekly
 on every push to `main`; pin versions with build args or by dispatching the workflow:
 
 ```sh
-docker build --build-arg NODE_VERSION=v24.20.0 --build-arg GO_VERSION=go1.27.1 --build-arg OPENCODE_VERSION=2.0.12 .
+docker build --build-arg NODE_VERSION=v24.20.0 --build-arg GO_VERSION=go1.27.1 --build-arg OPENCODE_VERSION=2.0.13 .
 ```
 
 opencode v2 is installed from its npm platform package (`@opencode/cli-linux-<arch>`,
