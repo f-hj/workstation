@@ -29,6 +29,25 @@ Set secrets.serverPassword (or provide it in an existing secret) before exposing
 Open a shell in the workstation:
 
   kubectl -n {{ .Release.Namespace }} exec -it deploy/{{ include "opencode.fullname" . }} -- bash
+{{- if .Values.openclient.enabled }}
+
+OpenClient (iOS app) plugin: enabled. The app connects to the server URL above
+and discovers the plugin bridge on the same host, port {{ .Values.openclient.bridge.port }}.
+The bridge is unauthenticated: keep it off the public Ingress. A VPN/Tailnet or
+a port-forward carrying both ports works, e.g.
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "opencode.fullname" . }} {{ .Values.service.port }}:http {{ .Values.openclient.bridge.port }}:openclient
+{{- if .Values.openclient.notify.enabled }}
+
+OC Notify web app: {{ .Values.openclient.notify.publicOrigin }}
+{{- if not .Values.ingress.enabled }}
+  (ingress.enabled is false: route that HTTPS origin to Service port {{ .Values.openclient.notify.listenPort }} yourself)
+{{- end }}
+  Set it up from the OpenClient app (OC Notify) or print a pairing code with:
+
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "opencode.fullname" . }} -- openclient-notify pair
+{{- end }}
+{{- end }}
 {{- if .Values.sshServer.enabled }}
 
 SSH (key-only, user "dev"):

@@ -17,6 +17,13 @@
   {{- end }}
 {{- end }}
 {{- $annotations = merge (deepCopy ($ing.annotations | default dict)) $annotations }}
+{{- /* OC Notify web app host, derived from openclient.notify.publicOrigin (https://host[:port]). */}}
+{{- $oc := .Values.openclient }}
+{{- $notifyHost := "" }}
+{{- if and $oc.enabled $oc.notify.enabled $oc.notify.ingress.enabled $oc.notify.publicOrigin }}
+  {{- $notifyHost = $oc.notify.publicOrigin | trimPrefix "https://" | trimPrefix "http://" | trimSuffix "/" }}
+  {{- $notifyHost = (splitList ":" $notifyHost) | first }}
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -37,6 +44,9 @@ spec:
     - hosts:
         {{- range $ing.hosts }}
         - {{ .host | quote }}
+        {{- end }}
+        {{- if $notifyHost }}
+        - {{ $notifyHost | quote }}
         {{- end }}
       secretName: {{ $tlsSecret }}
     {{- end }}
@@ -64,5 +74,19 @@ spec:
                 port:
                   name: http
           {{- end }}
+    {{- end }}
+    {{- if $notifyHost }}
+    # OC Notify web app (Web Push needs HTTPS; the plugin checks the Host header
+    # against publicOrigin, which ingress-nginx and Traefik pass through).
+    - host: {{ $notifyHost | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "opencode.fullname" . }}
+                port:
+                  name: oc-notify
     {{- end }}
 {{- end }}

@@ -47,6 +47,18 @@
 #   SSH_AUTHORIZED_KEYS_FILE       same, read from a file (e.g. a mounted secret)
 #   SSH_SERVER_PORT                sshd port, default 2222
 #
+#   OPENCLIENT_ENABLED             "true" loads the OpenClient iOS app plugin
+#                                  (@openclient-ios/opencode-plugin) through the generated config
+#   OPENCLIENT_PLUGIN_VERSION      plugin version; defaults to the one resolved at image build time
+#   OPENCLIENT_NOTIFY_ENABLED      "true" turns on OC Notify (Web Push) inside the plugin
+#   OPENCLIENT_NOTIFY_PUBLIC_ORIGIN  HTTPS origin the OC Notify web app is served from, e.g.
+#                                  https://notify.example.com (required, path-free)
+#   OPENCLIENT_NOTIFY_PORT         loopback port the OC Notify web app listens on, default 4319
+#   OPENCLIENT_NOTIFY_LISTEN_PORT  port on all interfaces forwarded to it (for a reverse proxy /
+#                                  Ingress), default 4321; "0" disables the forwarder
+#   OPENCLIENT_NOTIFY_DATA_DIR     notification state (VAPID keys, paired devices), default
+#                                  ~/.local/state/opencode/openclient/notifications
+#
 #   OPENCODE_SCRUB_ENV             "false" to disable environment scrubbing
 #   OPENCODE_KEEP_ENV              space/comma separated variable names exempt from scrubbing
 set -euo pipefail
@@ -57,6 +69,13 @@ XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-${HOME}/.config}"
 CONFIG_DIR="${XDG_CONFIG_HOME}/opencode"
 CONFIG_FILE="${CONFIG_DIR}/opencode.json"
 SECRETS_DIR="${XDG_CONFIG_HOME}/workstation/secrets"
+
+# OpenClient plugin (https://github.com/ntoporcov/openclient, OpenClientPlugin/).
+OPENCLIENT_PACKAGE="@openclient-ios/opencode-plugin"
+OPENCLIENT_VERSION_FILE="/usr/local/share/workstation/openclient-plugin.version"
+OPENCLIENT_NOTIFY_DEFAULT_DATA_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/opencode/openclient/notifications"
+# Set when OC Notify is on: "<listen port>:<loopback port>" for the socat forwarder.
+OPENCLIENT_NOTIFY_FORWARD=""
 
 # Variables consumed here and removed from opencode's environment.
 CONSUMED_VARS=()
@@ -152,7 +171,92 @@ write_config() {
     merged="$(jq -s '.[0] * .[1]' "${CONFIG_FILE}" <(printf '%s\n' "${OPENCODE_EXTRA_CONFIG_JSON}"))"
     printf '%s\n' "${merged}" > "${CONFIG_FILE}"
   fi
+
+  if [[ "${OPENCLIENT_ENABLED:-false}" == "true" ]]; then
+    add_openclient_plugin
+  fi
 }
+
+# OC Notify options for the OpenClient plugin as JSON, or "null" when disabled
+# or misconfigured (the plugin refuses to start with a bad publicOrigin, which
+# would also take the OpenClient bridge down with it).
+openclient_notify_options() {
+  if [[ "${OPENCLIENT_NOTIFY_ENABLED:-false}" != "true" ]]; then
+    printf 'null'
+    return
+  fi
+  local origin="${OPENCLIENT_NOTIFY_PUBLIC_ORIGIN%/}"
+  if [[ ! "${origin}" =~ ^https://[^/?#[:space:]]+$ ]]; then
+    log "WARNING: OPENCLIENT_NOTIFY_PUBLIC_ORIGIN='${origin}' is not a path-free HTTPS origin; OC Notify disabled"
+    printf 'null'
+    return
+  fi
+  local port="${OPENCLIENT_NOTIFY_PORT:-4319}"
+  if [[ ! "${port}" =~ ^[0-9]+$ ]] || (( port < 1 || port > 65535 )); then
+    log "WARNING: OPENCLIENT_NOTIFY_PORT='${port}' is not a valid port; OC Notify disabled"
+    printf 'null'
+    return
+  fi
+  jq -n \
+    --arg origin "${origin}" \
+    --argjson port "${port}" \
+    --arg data_dir "${OPENCLIENT_NOTIFY_DATA_DIR:-${OPENCLIENT_NOTIFY_DEFAULT_DATA_DIR}}" \
+    '{ enabled: true, publicOrigin: $origin, port: $port, dataDir: $data_dir }'
+}
+
+# Append the OpenClient plugin to "plugins" in the generated config (v2 object
+# form: { package, options }). An entry for the same package coming from
+# OPENCODE_EXTRA_CONFIG_JSON is replaced so the plugin is loaded once.
+add_openclient_plugin() {
+  local version="${OPENCLIENT_PLUGIN_VERSION:-}"
+  if [[ -z "${version}" && -r "${OPENCLIENT_VERSION_FILE}" ]]; then
+    version="$(tr -d '[:space:]' < "${OPENCLIENT_VERSION_FILE}")"
+  fi
+  local pkg="${OPENCLIENT_PACKAGE}"
+  if [[ -n "${version}" && "${version}" != "latest" ]]; then
+    pkg+="@${version}"
+  fi
+
+  log "adding the OpenClient plugin (${pkg}) to opencode.json"
+  local merged
+  merged="$(jq \
+    --arg pkg "${pkg}" \
+    --arg prefix "${OPENCLIENT_PACKAGE}" \
+    --arg server_url "http://127.0.0.1:${OPENCODE_PORT:-4096}" \
+    --argjson notify "${OPENCLIENT_NOTIFY_JSON}" \
+    '
+    .plugins = (
+      ((.plugins // []) | map(select(
+        ((if type == "object" then (.package // "") else . end) | tostring | startswith($prefix)) | not
+      )))
+      + [{
+          package: $pkg,
+          options: ({ serverURL: $server_url }
+            + (if $notify == null then {} else { notifications: $notify } end))
+        }]
+    )
+    ' "${CONFIG_FILE}")"
+  printf '%s\n' "${merged}" > "${CONFIG_FILE}"
+}
+
+# OpenClient: OC Notify settings are evaluated even when the config is not
+# regenerated (mounted file, OPENCODE_CONFIG_KEEP), so the state directory and
+# the loopback forwarder match a hand-written plugin entry too.
+OPENCLIENT_NOTIFY_JSON="null"
+if [[ "${OPENCLIENT_ENABLED:-false}" == "true" ]]; then
+  OPENCLIENT_NOTIFY_JSON="$(openclient_notify_options)"
+  if [[ "${OPENCLIENT_NOTIFY_JSON}" != "null" ]]; then
+    notify_data_dir="$(printf '%s' "${OPENCLIENT_NOTIFY_JSON}" | jq -r .dataDir)"
+    notify_port="$(printf '%s' "${OPENCLIENT_NOTIFY_JSON}" | jq -r .port)"
+    install -d -m 0700 "${notify_data_dir}"
+    log "OpenClient OC Notify: origin $(printf '%s' "${OPENCLIENT_NOTIFY_JSON}" | jq -r .publicOrigin), loopback port ${notify_port}, state in ${notify_data_dir}"
+    notify_listen="${OPENCLIENT_NOTIFY_LISTEN_PORT:-4321}"
+    if [[ "${notify_listen}" =~ ^[0-9]+$ ]] && (( notify_listen > 0 )); then
+      OPENCLIENT_NOTIFY_FORWARD="${notify_listen}:${notify_port}"
+    fi
+    unset notify_data_dir notify_port notify_listen
+  fi
+fi
 
 # The config is derived from the environment, so regenerate it on every start
 # (the home directory is usually a persistent volume). Keep the file only when
@@ -165,6 +269,8 @@ else
   write_config
 fi
 CONSUMED_VARS+=(OPENCODE_CONFIG_JSON OPENCODE_EXTRA_CONFIG_JSON OPENCODE_CONFIG_KEEP OPENCODE_CONFIG_FORCE OPENCODE_PROVIDER_API_KEY_ENV OPENCODE_PROVIDER_BASE_URL)
+# OPENCLIENT_* stay in the environment: they hold no secrets and the
+# openclient-notify pairing wrapper reads them.
 
 # ---------------------------------------------------------------------------
 # 3. git / GitHub / Drone
@@ -363,32 +469,49 @@ if [[ "${1:-serve}" == "serve" ]]; then
       args+=(--cors "${origin}")
     done
   fi
-  if [[ -z "${SSHD_CONFIG}" ]]; then
+  # Side processes started next to opencode (sshd, the OC Notify forwarder).
+  pids=()
+  names=()
+  if [[ -n "${SSHD_CONFIG}" ]]; then
+    log "starting: sshd -f ${SSHD_CONFIG}"
+    /usr/sbin/sshd -D -e -f "${SSHD_CONFIG}" &
+    pids+=($!); names+=(sshd)
+  fi
+  if [[ -n "${OPENCLIENT_NOTIFY_FORWARD}" ]]; then
+    # The OC Notify web app only listens on loopback; forward a port on all
+    # interfaces to it so a reverse proxy / Ingress can reach it.
+    listen_port="${OPENCLIENT_NOTIFY_FORWARD%%:*}"
+    target_port="${OPENCLIENT_NOTIFY_FORWARD##*:}"
+    log "starting: socat 0.0.0.0:${listen_port} -> 127.0.0.1:${target_port} (OC Notify)"
+    socat "TCP-LISTEN:${listen_port},fork,reuseaddr" "TCP:127.0.0.1:${target_port}" &
+    pids+=($!); names+=(socat)
+  fi
+
+  if ((${#pids[@]} == 0)); then
     log "starting: opencode ${args[*]} $*"
     exec opencode "${args[@]}" "$@"
   fi
 
-  # Run sshd and opencode side by side; if either exits, stop the other so the
-  # container restarts cleanly.
-  log "starting: sshd -f ${SSHD_CONFIG}"
-  /usr/sbin/sshd -D -e -f "${SSHD_CONFIG}" &
-  sshd_pid=$!
+  # Run the side processes and opencode together; if any exits, stop the
+  # others so the container restarts cleanly.
   log "starting: opencode ${args[*]} $*"
   opencode "${args[@]}" "$@" &
-  oc_pid=$!
+  pids+=($!); names+=(opencode)
 
-  forward() { kill -TERM "${sshd_pid}" "${oc_pid}" 2>/dev/null || true; }
+  forward() { kill -TERM "${pids[@]}" 2>/dev/null || true; }
   trap forward TERM INT
 
-  wait -n "${sshd_pid}" "${oc_pid}"
-  code=$?
-  if kill -0 "${oc_pid}" 2>/dev/null; then
-    log "sshd exited (${code}); stopping opencode"
-  else
-    log "opencode exited (${code}); stopping sshd"
-  fi
+  # `|| code=$?` keeps errexit from ending the script before the cleanup below.
+  code=0
+  wait -n "${pids[@]}" || code=$?
+  for i in "${!pids[@]}"; do
+    if ! kill -0 "${pids[i]}" 2>/dev/null; then
+      log "${names[i]} exited (${code}); stopping the other processes"
+      break
+    fi
+  done
   forward
-  wait "${sshd_pid}" "${oc_pid}" 2>/dev/null || true
+  wait "${pids[@]}" 2>/dev/null || true
   exit "${code}"
 fi
 

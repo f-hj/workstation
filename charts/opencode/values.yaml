@@ -127,6 +127,46 @@ docker:
   #  limits:   { cpu: "2",  memory: 4Gi }
 
 # ---------------------------------------------------------------------------
+# OpenClient: the native iOS/iPadOS client for self-hosted opencode servers
+# (https://github.com/ntoporcov/openclient). Its opencode plugin
+# (@openclient-ios/opencode-plugin) adds native tools for the app and,
+# optionally, OC Notify: Web Push notifications for finished sessions,
+# permission requests and questions, served from your own HTTPS origin.
+# ---------------------------------------------------------------------------
+openclient:
+  # Add the plugin to the generated opencode.json. opencode installs it from
+  # npm (into ~/.cache/opencode on the home volume) when a project is opened.
+  enabled: false
+  # Plugin version; empty uses the version resolved when the image was built.
+  version: ""
+  bridge:
+    # The plugin's WebSocket bridge, which the iOS app discovers on the same
+    # host it connects opencode to. It binds the first free port in 4070-4090
+    # (4070 in a fresh container) on all interfaces and has NO authentication:
+    # reach it through a VPN/Tailnet, kubectl port-forward or a private
+    # LoadBalancer, never through the public Ingress.
+    port: 4070
+    # Expose the bridge port on the chart's Service.
+    service: true
+  notify:
+    enabled: false
+    # HTTPS origin of the OC Notify web app (path-free), e.g. https://notify.example.com.
+    # Web Push requires HTTPS; the app is added to the iPhone Home Screen from here.
+    publicOrigin: ""
+    # Loopback port the plugin serves the web app on inside the container.
+    port: 4319
+    # Pod port forwarded to that loopback port (socat); this is what the
+    # Service and Ingress point at.
+    listenPort: 4321
+    # Notification state (VAPID keys, paired devices, event history). Empty:
+    # /home/dev/.local/state/opencode/openclient/notifications (home volume).
+    dataDir: ""
+    ingress:
+      # Add a rule for publicOrigin's host to the chart Ingress (needs
+      # ingress.enabled) so cert-manager also covers it with the same TLS secret.
+      enabled: true
+
+# ---------------------------------------------------------------------------
 # SSH access to the workstation (sshd runs unprivileged as "dev", key-only)
 # ---------------------------------------------------------------------------
 sshServer:

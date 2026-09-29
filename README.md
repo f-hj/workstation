@@ -18,12 +18,15 @@ development toolchain, published to GitHub Container Registry together with a He
 - Go (latest stable at build time)
 - Node.js (latest at build time) with npm, yarn, corepack
 - `opencode` v2 (latest 2.x release at build time) started as `opencode serve` on port 4096
+- Optional [OpenClient](https://github.com/ntoporcov/openclient) iOS app plugin with OC Notify
+  push notifications (`OPENCLIENT_ENABLED=true`, see below); `ffmpeg` and `socat` for it
 
 Every "latest" is resolved when the image is built. The workflow rebuilds weekly and
 on every push to `main`; pin versions with build args or by dispatching the workflow:
 
 ```sh
-docker build --build-arg NODE_VERSION=v24.20.0 --build-arg GO_VERSION=go1.27.1 --build-arg OPENCODE_VERSION=2.0.12 .
+docker build --build-arg NODE_VERSION=v24.20.0 --build-arg GO_VERSION=go1.27.1 \
+  --build-arg OPENCODE_VERSION=2.0.12 --build-arg OPENCLIENT_PLUGIN_VERSION=0.4.0 .
 ```
 
 opencode v2 is installed from its npm platform package (`@opencode/cli-linux-<arch>`,
@@ -66,6 +69,12 @@ file.
 | `SSH_AUTHORIZED_KEYS`            |                  | Public keys (one per line); when set, an sshd starts (see below)     |
 | `SSH_AUTHORIZED_KEYS_FILE`       |                  | Same, from a file such as a mounted secret                           |
 | `SSH_SERVER_PORT`                | `2222`           | sshd listen port                                                     |
+| `OPENCLIENT_ENABLED`             | `false`          | Load the OpenClient iOS app plugin (see below)                       |
+| `OPENCLIENT_PLUGIN_VERSION`      | image build      | Plugin version written to the config                                 |
+| `OPENCLIENT_NOTIFY_ENABLED`      | `false`          | Turn on OC Notify (Web Push) in the plugin                           |
+| `OPENCLIENT_NOTIFY_PUBLIC_ORIGIN`|                  | HTTPS origin of the OC Notify web app, e.g. `https://notify.example.com` |
+| `OPENCLIENT_NOTIFY_PORT` / `OPENCLIENT_NOTIFY_LISTEN_PORT` | `4319` / `4321` | Loopback port of the web app / port forwarded to it on all interfaces |
+| `OPENCLIENT_NOTIFY_DATA_DIR`     | `~/.local/state/opencode/openclient/notifications` | Notification state (VAPID keys, paired devices) |
 
 A project-level `opencode.json` inside `/workspace` is merged on top as usual.
 
@@ -148,6 +157,89 @@ Put `DD_API_KEY` and `DD_APPLICATION_KEY` in the Secret (`secrets.extra` or your
 permission plus the permissions of the resources you query. Local MCP servers
 work the same way with `type: local` and a `command` array; `npx`, `uvx` and
 `go run` are all available in the image.
+
+## OpenClient (iOS app) and OC Notify
+
+[OpenClient](https://github.com/ntoporcov/openclient) is a native iPhone/iPad
+client for self-hosted opencode servers. It talks to the server over the normal
+HTTP API (basic auth works), so it needs nothing from this image to browse
+projects and sessions. Its opencode plugin,
+[`@openclient-ios/opencode-plugin`](https://www.npmjs.com/package/@openclient-ios/opencode-plugin),
+adds the app's native tools (declarative visuals, image and video previews,
+in-app browser automation) and **OC Notify**: Web Push notifications for
+finished sessions, permission requests and questions, delivered from your own
+HTTPS origin without any third-party relay.
+
+Set `OPENCLIENT_ENABLED=true` (chart: `openclient.enabled`) and the entrypoint
+appends the plugin to the generated `opencode.json`:
+
+```json
+"plugins": [{
+  "package": "@openclient-ios/opencode-plugin@0.4.0",
+  "options": { "serverURL": "http://127.0.0.1:4096" }
+}]
+```
+
+opencode v2 installs package plugins itself, into `~/.cache/opencode/npm` on
+the home volume, the first time a project is opened after a start, so the pod
+needs access to the npm registry at that point. The version comes from the
+image (`OPENCLIENT_PLUGIN_VERSION` build arg, "latest" resolved at build time,
+shown in `/usr/local/share/workstation/openclient-plugin.version`); override
+it at runtime with the same variable. With `OPENCODE_CONFIG_JSON` or a mounted
+`config.content`, add the entry to your own file instead. `ffmpeg` and
+`ffprobe`, which the image and video tools need, are in the image.
+
+The plugin opens a WebSocket **bridge** on the first free port in
+`4070-4090` (4070 in a fresh container), on all interfaces, dual-stack
+(`::`, so the kernel needs IPv6 support). The iOS app finds it on the host it
+reaches opencode at. The bridge has **no authentication**: reach it through a
+VPN or Tailnet, `kubectl port-forward`, or a private LoadBalancer, never
+through the public Ingress. The chart adds port `4070` to the Service
+(`openclient.bridge.service`), so
+`kubectl port-forward svc/<release>-opencode 4096:http 4070:openclient` carries
+both and the app connects to `http://127.0.0.1:4096`.
+
+### OC Notify
+
+Notifications are off until `OPENCLIENT_NOTIFY_ENABLED=true` and
+`OPENCLIENT_NOTIFY_PUBLIC_ORIGIN=https://notify.example.com`. The plugin then
+serves a small web app on loopback (`127.0.0.1:4319`) which you install on the
+phone's Home Screen; Web Push needs it served over HTTPS at exactly that
+origin. Because it only listens on loopback, the entrypoint runs a `socat`
+forwarder from `0.0.0.0:4321` (`OPENCLIENT_NOTIFY_LISTEN_PORT`, `0` to skip)
+to it, and the chart routes the origin's host to that port:
+
+```yaml
+openclient:
+  enabled: true
+  notify:
+    enabled: true
+    publicOrigin: https://notify.example.com
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: opencode.example.com
+  tls:
+    clusterIssuer: letsencrypt   # the notify host is added to the same certificate
+```
+
+The Ingress rule for `notify.example.com` is added by the chart
+(`openclient.notify.ingress.enabled`, default `true`); with your own reverse
+proxy, forward the origin to Service port `4321` and keep the `Host` header,
+which the plugin checks against `publicOrigin`. Pairing state, VAPID keys and
+event history live in `OPENCLIENT_NOTIFY_DATA_DIR`
+(`/home/dev/.local/state/opencode/openclient/notifications`, on the home
+volume). Set up OC Notify from the OpenClient app; to print a one-use pairing
+code by hand, run inside the pod:
+
+```sh
+openclient-notify pair      # wraps npm exec ... openclient-notify pair --data-dir <the configured dir>
+```
+
+Docker: `-e OPENCLIENT_ENABLED=true -p 4070:4070`, plus
+`-e OPENCLIENT_NOTIFY_ENABLED=true -e OPENCLIENT_NOTIFY_PUBLIC_ORIGIN=https://notify.example.com -p 4321:4321`
+behind a TLS-terminating proxy for `notify.example.com`.
 
 ## Docker inside the workstation
 
@@ -433,6 +525,7 @@ Dockerfile                          image definition
 scripts/docker-entrypoint.sh        secrets to files, config generation, git/GitHub setup, env scrub, opencode serve
 scripts/git-credential-github-file  git credential helper reading the stored GitHub token
 scripts/drone-wrapper               drone CLI wrapper loading DRONE_SERVER/DRONE_TOKEN from a file
+scripts/openclient-notify           OC Notify pairing CLI wrapper (plugin version and data dir from opencode.json)
 charts/opencode/                    Helm chart
 .github/workflows/release.yml       build, push image (amd64+arm64) and chart to GHCR
 ```

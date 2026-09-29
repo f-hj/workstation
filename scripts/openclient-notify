@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# OC Notify pairing CLI of the OpenClient plugin (@openclient-ios/opencode-plugin),
+# run through `npm exec` with the plugin version and notification data directory
+# the entrypoint wrote into ~/.config/opencode/opencode.json, so that
+#
+#   openclient-notify pair
+#
+# prints a pairing code for the exact state directory the running plugin uses.
+# Both can still be overridden: OPENCLIENT_PLUGIN_VERSION / OPENCLIENT_NOTIFY_DATA_DIR
+# in the environment, or an explicit `--data-dir PATH` argument.
+set -euo pipefail
+
+PACKAGE="@openclient-ios/opencode-plugin"
+CONFIG_FILE="${XDG_CONFIG_HOME:-${HOME}/.config}/opencode/opencode.json"
+VERSION_FILE="/usr/local/share/workstation/openclient-plugin.version"
+
+# The plugin entry from the generated config (v2 object form), if any.
+entry=""
+if [[ -r "${CONFIG_FILE}" ]]; then
+  entry="$(jq -c --arg p "${PACKAGE}" '
+    (.plugins // []) | map(select(type == "object" and ((.package // "") | startswith($p)))) | first // empty
+  ' "${CONFIG_FILE}" 2>/dev/null || true)"
+fi
+
+version="${OPENCLIENT_PLUGIN_VERSION:-}"
+if [[ -z "${version}" && -n "${entry}" ]]; then
+  version="$(printf '%s' "${entry}" | jq -r '.package | split("@") | if length > 2 then .[2] else "" end')"
+fi
+if [[ -z "${version}" && -r "${VERSION_FILE}" ]]; then
+  version="$(tr -d '[:space:]' < "${VERSION_FILE}")"
+fi
+pkg="${PACKAGE}"
+if [[ -n "${version}" && "${version}" != "latest" ]]; then
+  pkg+="@${version}"
+fi
+
+data_dir="${OPENCLIENT_NOTIFY_DATA_DIR:-}"
+if [[ -z "${data_dir}" && -n "${entry}" ]]; then
+  data_dir="$(printf '%s' "${entry}" | jq -r '.options.notifications.dataDir // empty')"
+fi
+if [[ -z "${data_dir}" ]]; then
+  data_dir="${XDG_STATE_HOME:-${HOME}/.local/state}/opencode/openclient/notifications"
+fi
+
+args=("$@")
+has_data_dir=false
+for a in "$@"; do
+  [[ "${a}" == "--data-dir" ]] && has_data_dir=true
+done
+if [[ "${1:-}" == "pair" && "${has_data_dir}" == "false" ]]; then
+  args+=(--data-dir "${data_dir}")
+fi
+
+exec npm exec --yes --package="${pkg}" -- openclient-notify "${args[@]}"
