@@ -61,6 +61,16 @@ spec:
               containerPort: {{ .Values.sshServer.port }}
               protocol: TCP
             {{- end }}
+            {{- if .Values.openclient.enabled }}
+            - name: openclient
+              containerPort: {{ .Values.openclient.bridge.port }}
+              protocol: TCP
+            {{- if .Values.openclient.notify.enabled }}
+            - name: oc-notify
+              containerPort: {{ .Values.openclient.notify.listenPort }}
+              protocol: TCP
+            {{- end }}
+            {{- end }}
           env:
             - name: OPENCODE_HOST
               value: "0.0.0.0"
@@ -123,6 +133,31 @@ spec:
             {{- if .Values.docker.enabled }}
             - name: DOCKER_HOST
               value: unix:///run/docker/docker.sock
+            {{- end }}
+            {{- if .Values.openclient.enabled }}
+            - name: OPENCLIENT_ENABLED
+              value: "true"
+            {{- with .Values.openclient.version }}
+            - name: OPENCLIENT_PLUGIN_VERSION
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.openclient.notify.enabled }}
+            {{- if not .Values.openclient.notify.publicOrigin }}
+            {{- fail "openclient.notify.publicOrigin is required when openclient.notify.enabled is true (e.g. https://notify.example.com)" }}
+            {{- end }}
+            - name: OPENCLIENT_NOTIFY_ENABLED
+              value: "true"
+            - name: OPENCLIENT_NOTIFY_PUBLIC_ORIGIN
+              value: {{ .Values.openclient.notify.publicOrigin | quote }}
+            - name: OPENCLIENT_NOTIFY_PORT
+              value: {{ .Values.openclient.notify.port | quote }}
+            - name: OPENCLIENT_NOTIFY_LISTEN_PORT
+              value: {{ .Values.openclient.notify.listenPort | quote }}
+            {{- with .Values.openclient.notify.dataDir }}
+            - name: OPENCLIENT_NOTIFY_DATA_DIR
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
             {{- end }}
             {{- if .Values.sshServer.enabled }}
             - name: SSH_SERVER_PORT

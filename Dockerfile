@@ -15,6 +15,9 @@ ARG TARGETARCH
 ARG NODE_VERSION=latest
 ARG GO_VERSION=latest
 ARG OPENCODE_VERSION=latest
+# OpenClient iOS app plugin (@openclient-ios/opencode-plugin): version written
+# into opencode.json by the entrypoint when OPENCLIENT_ENABLED=true.
+ARG OPENCLIENT_PLUGIN_VERSION=latest
 
 ARG USERNAME=dev
 ARG USER_UID=1000
@@ -65,6 +68,10 @@ RUN set -eux; \
         procps \
         htop \
         tini \
+        # OC Notify: forwards a pod port to the plugin's loopback-only web app
+        socat \
+        # OpenClient image/video tools (ffprobe + ffmpeg previews and HLS)
+        ffmpeg \
         sudo \
         locales \
         tzdata \
@@ -184,6 +191,27 @@ RUN set -eux; \
     opencode --version
 
 # ---------------------------------------------------------------------------
+# OpenClient plugin version (https://github.com/ntoporcov/openclient)
+#
+# opencode v2 installs package plugins itself (into ~/.cache/opencode/npm, on
+# the home volume) the first time a project is opened, so the package is not
+# baked into the image. Only the version is resolved here; the entrypoint
+# writes "@openclient-ios/opencode-plugin@<version>" into opencode.json when
+# OPENCLIENT_ENABLED=true (override at runtime with OPENCLIENT_PLUGIN_VERSION).
+# ---------------------------------------------------------------------------
+RUN set -eux; \
+    OPENCLIENT_PLUGIN_VERSION="${OPENCLIENT_PLUGIN_VERSION#v}"; \
+    if [ "${OPENCLIENT_PLUGIN_VERSION}" = "latest" ]; then \
+        OPENCLIENT_PLUGIN_VERSION="$(curl -fsSL 'https://registry.npmjs.org/@openclient-ios%2Fopencode-plugin/latest' | jq -er .version)"; \
+    else \
+        curl -fsSL "https://registry.npmjs.org/@openclient-ios%2Fopencode-plugin/${OPENCLIENT_PLUGIN_VERSION}" | jq -er .version >/dev/null; \
+    fi; \
+    echo "OpenClient plugin version: ${OPENCLIENT_PLUGIN_VERSION}"; \
+    install -d -m 0755 /usr/local/share/workstation; \
+    printf '%s\n' "${OPENCLIENT_PLUGIN_VERSION}" > /usr/local/share/workstation/openclient-plugin.version; \
+    chmod 0644 /usr/local/share/workstation/openclient-plugin.version
+
+# ---------------------------------------------------------------------------
 # uv (Python package manager) and the Drone CI CLI, latest releases
 # ---------------------------------------------------------------------------
 RUN set -eux; \
@@ -254,6 +282,7 @@ RUN set -eux; \
 COPY --chmod=0755 scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY --chmod=0755 scripts/git-credential-github-file /usr/local/bin/git-credential-github-file
 COPY --chmod=0755 scripts/drone-wrapper /usr/local/bin/drone
+COPY --chmod=0755 scripts/openclient-notify /usr/local/bin/openclient-notify
 
 USER ${USERNAME}
 WORKDIR /workspace
@@ -268,7 +297,10 @@ ENV HOME=/home/${USERNAME} \
     BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 
 # 4096: opencode server. 2222: optional sshd (only when SSH_AUTHORIZED_KEYS is set).
-EXPOSE 4096 2222
+# 4070: OpenClient plugin bridge (first free port in 4070-4090, unauthenticated;
+#       only with OPENCLIENT_ENABLED=true, keep it on a trusted network).
+# 4321: OC Notify web app, forwarded from loopback (only with OPENCLIENT_NOTIFY_ENABLED=true).
+EXPOSE 4096 2222 4070 4321
 
 # Persist these two paths:
 #   /workspace     your repositories

@@ -20,6 +20,9 @@ on:
       opencode_version:
         description: "opencode v2 version (e.g. 2.0.12) or latest"
         default: latest
+      openclient_plugin_version:
+        description: "OpenClient plugin version (e.g. 0.4.0) or latest"
+        default: latest
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -102,6 +105,7 @@ jobs:
             NODE_VERSION=${{ inputs.node_version || 'latest' }}
             GO_VERSION=${{ inputs.go_version || 'latest' }}
             OPENCODE_VERSION=${{ inputs.opencode_version || 'latest' }}
+            OPENCLIENT_PLUGIN_VERSION=${{ inputs.openclient_plugin_version || 'latest' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: mode=max

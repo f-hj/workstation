@@ -15,5 +15,21 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
+    {{- if .Values.openclient.enabled }}
+    {{- if .Values.openclient.bridge.service }}
+    # OpenClient bridge (WebSocket, unauthenticated): the iOS app looks for it on
+    # the host it reaches opencode at, so it shares this Service.
+    - port: {{ .Values.openclient.bridge.port }}
+      targetPort: openclient
+      protocol: TCP
+      name: openclient
+    {{- end }}
+    {{- if .Values.openclient.notify.enabled }}
+    - port: {{ .Values.openclient.notify.listenPort }}
+      targetPort: oc-notify
+      protocol: TCP
+      name: oc-notify
+    {{- end }}
+    {{- end }}
   selector:
     {{- include "opencode.selectorLabels" . | nindent 4 }}
